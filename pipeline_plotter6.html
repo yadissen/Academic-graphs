@@ -634,6 +634,11 @@ hr { border: none; border-top: 1px solid var(--grid); margin: 10px 0; }
     <div class="chart-toolbar">
       <span class="toolbar-label">Spline:</span>
       <button class="toggle-btn on" id="tog-spline" onclick="toggleSpline()" style="flex:none;padding:4px 10px;">Show</button>
+      <div style="display:flex;align-items:center;gap:5px;margin-left:10px;">
+        <span class="toolbar-label">Mode:</span>
+        <button class="toggle-btn on"  id="btn-mode-profile" onclick="setProfileMode()" style="flex:none;padding:4px 10px;">Profile</button>
+        <button class="toggle-btn off" id="btn-mode-inlet"   onclick="loadInletMode()"  style="flex:none;padding:4px 10px;">Inlet P.</button>
+      </div>
       <div class="spacer"></div>
       <div style="display:flex;align-items:center;gap:6px;">
         <div style="position:relative;">
@@ -807,6 +812,17 @@ let _rawData    = [];
 
 // Axis range overrides — null means auto (data-driven)
 let axisRanges = { xMin: null, xMax: null, yMin: null, yMax: null };
+
+// Chart mode: 'profile' = pipeline pressure profile, 'inlet' = inlet pressure vs field life
+let chartMode = 'profile';
+let inletData  = null;   // populated by parseInletSheet()
+
+function fmtWC(v)   { return isFinite(v) ? v + '%' : ''; }
+function fmtFlow(v) {
+  if (!isFinite(v)) return '';
+  const k = v / 1000;
+  return (k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)) + 'k';
+}
 
 /* ═══════════════════════════════════════════════════════════
    MARKUP ENGINE  _{x} → subscript   ^{x} → superscript
@@ -1385,6 +1401,90 @@ function renderAnnList() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   INLET PRESSURE MODE — parse, load, set profile
+═══════════════════════════════════════════════════════════ */
+function parseInletSheet() {
+  if (!_wb) return null;
+  const sheetName = _wb.SheetNames.find(n => /inlet.*pressure/i.test(n));
+  if (!sheetName) return null;
+  const ws   = _wb.Sheets[sheetName];
+  const raw  = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false });
+  const rows = raw.filter(r => r.some(v => String(v).trim() !== ''));
+  if (rows.length < 2) return null;
+  const hdr = rows[0];
+
+  const yearCol = hdr.findIndex(h => /field.life|year/i.test(String(h)));
+  const flowCol = hdr.findIndex(h => /flowrate|flow.rate/i.test(String(h)));
+  const wcCol   = hdr.findIndex(h => /water.cut/i.test(String(h)));
+  if (yearCol < 0) return null;
+
+  const skip = new Set([yearCol, flowCol, wcCol].filter(i => i >= 0));
+  const dimCols = [];
+  for (let i = 0; i < hdr.length; i++) {
+    if (skip.has(i)) continue;
+    const h = String(hdr[i] || '').trim();
+    if (!h) continue;
+    const hasData = rows.slice(1).some(r => isFinite(parseFloat(String(r[i]||'').replace(/,/g,'.'))));
+    if (!hasData) continue;
+    const label = h.replace(/\s*\(bara\)/gi,'').replace(/\s*\[bara\]/gi,'').trim();
+    dimCols.push({ colIdx: i, label });
+  }
+  if (!dimCols.length) return null;
+
+  const years = [], wc = [], flow = [];
+  const dimVals = dimCols.map(() => []);
+
+  for (let ri = 1; ri < rows.length; ri++) {
+    const r  = rows[ri];
+    const yr = parseFloat(String(r[yearCol]||'').replace(/,/g,'.'));
+    if (!isFinite(yr)) continue;
+    years.push(yr);
+    flow.push(flowCol >= 0 ? parseFloat(String(r[flowCol]||'').replace(/,/g,'.')) : NaN);
+    wc.push(  wcCol   >= 0 ? parseFloat(String(r[wcCol]  ||'').replace(/,/g,'.')) : NaN);
+    dimCols.forEach((dc, di) => {
+      const v = parseFloat(String(r[dc.colIdx]||'').replace(/,/g,'.'));
+      dimVals[di].push(isFinite(v) ? v : null);
+    });
+  }
+
+  return {
+    years, wc, flow,
+    diameters: dimCols.map((dc, di) => ({
+      label:       dc.label,
+      color:       SERIES_COLORS[di % SERIES_COLORS.length],
+      markerShape: MARKER_SHAPES[di % MARKER_SHAPES.length],
+      values:      dimVals[di],
+    })),
+  };
+}
+
+function loadInletMode() {
+  const data = parseInletSheet();
+  if (!data) {
+    const st = document.getElementById('import-status');
+    st.className = 'status-line err';
+    st.textContent = '✗ Load the Excel file first — needs an "Inlet Pressure" sheet';
+    return;
+  }
+  inletData = data;
+  chartMode = 'inlet';
+  document.getElementById('btn-mode-profile').className = 'toggle-btn off';
+  document.getElementById('btn-mode-inlet').className   = 'toggle-btn on';
+  document.getElementById('ylabel').value = 'Inlet Pressure [bara]';
+  document.getElementById('xlabel').value = 'Field Life [years]';
+  updateLabelPreview('ylabel','prev-ylabel');
+  updateLabelPreview('xlabel','prev-xlabel');
+  drawChart();
+}
+
+function setProfileMode() {
+  chartMode = 'profile';
+  document.getElementById('btn-mode-profile').className = 'toggle-btn on';
+  document.getElementById('btn-mode-inlet').className   = 'toggle-btn off';
+  drawChart();
+}
+
+/* ═══════════════════════════════════════════════════════════
    CATMULL-ROM SPLINE
 ═══════════════════════════════════════════════════════════ */
 function drawCatmullRom(c, points, scx, scy, tension) {
@@ -1460,8 +1560,12 @@ function drawChart() {
   const CH = Math.round(CW * 0.60);
   canvas.width  = CW; canvas.height = CH;
   canvas.style.width = CW+'px'; canvas.style.height = CH+'px';
-  _render(ctx2d, CW, CH);
-  updateAxisRangePlaceholders();
+  if (chartMode === 'inlet' && inletData) {
+    _renderInlet(ctx2d, CW, CH);
+  } else {
+    _render(ctx2d, CW, CH);
+    updateAxisRangePlaceholders();
+  }
 }
 
 function getAxisExtents() {
@@ -1745,6 +1849,161 @@ function drawLegend(c, PAD, PW, PH) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   INLET PRESSURE CHART — canvas renderer
+═══════════════════════════════════════════════════════════ */
+function _renderInlet(c, CW, CH) {
+  if (!inletData) return;
+  const { years, wc, flow, diameters } = inletData;
+  const PAD = { top:102, right:40, bottom:84, left:92 };
+  const PW  = CW - PAD.left - PAD.right;
+  const PH  = CH - PAD.top  - PAD.bottom;
+
+  // Axes
+  const xAxis = { min: years[0], max: years[years.length-1], ticks: years.slice() };
+  const allY  = diameters.flatMap(d => d.values.filter(v => v !== null));
+  const yDMin = axisRanges.yMin !== null ? axisRanges.yMin : Math.min(...allY);
+  const yDMax = axisRanges.yMax !== null ? axisRanges.yMax : Math.max(...allY);
+  const yAxis = niceAxis(yDMin, yDMax);
+  if (axisRanges.yMin !== null) yAxis.min = axisRanges.yMin;
+  if (axisRanges.yMax !== null) yAxis.max = axisRanges.yMax;
+
+  const scx = v => PAD.left + (v - xAxis.min) / (xAxis.max - xAxis.min) * PW;
+  const scy = v => PAD.top  + PH - (v - yAxis.min) / (yAxis.max - yAxis.min) * PH;
+
+  c.clearRect(0, 0, CW, CH);
+  c.fillStyle = '#ffffff'; c.fillRect(0, 0, CW, CH);
+
+  c.save();
+  c.beginPath(); c.rect(PAD.left, PAD.top, PW, PH); c.clip();
+
+  // ── Series lines ──
+  diameters.forEach(d => {
+    const pts = years.map((y,i) => ({ x:y, y:d.values[i] })).filter(p => p.y !== null);
+    if (pts.length < 2) return;
+    c.save();
+    c.strokeStyle = d.color; c.lineWidth = lineWeight();
+    if (splineStyle === 'dashed') c.setLineDash([7,4]);
+    if (showSpline) {
+      drawCatmullRom(c, pts, scx, scy, 0.5);
+    } else {
+      c.beginPath();
+      c.moveTo(scx(pts[0].x), scy(pts[0].y));
+      for (let i = 1; i < pts.length; i++) c.lineTo(scx(pts[i].x), scy(pts[i].y));
+      c.stroke();
+    }
+    c.restore();
+  });
+
+  // ── Markers ──
+  if (markerMode !== 'none') {
+    diameters.forEach(d => {
+      const pts = years.map((y,i) => ({ x:y, y:d.values[i] })).filter(p => p.y !== null);
+      pts.forEach((p, i) => {
+        if (!showMarkerAt(i, pts.length)) return;
+        drawMarker(c, d.markerShape || 'circle', scx(p.x), scy(p.y), 5.0, d.color);
+      });
+    });
+  }
+
+  c.restore(); // end clip
+
+  // ── Plot border ──
+  c.strokeStyle = '#1a1a1a'; c.lineWidth = 1.4;
+  c.strokeRect(PAD.left, PAD.top, PW, PH);
+
+  // ── Y axis ticks ──
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  yAxis.ticks.forEach(t => {
+    const y = scy(t);
+    c.strokeStyle = '#1a1a1a'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(PAD.left,y); c.lineTo(PAD.left+6,y); c.stroke();
+    c.fillStyle = '#1a1a1a';
+    c.font = '18px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.fillText(fmtTick(t), PAD.left-6, y);
+  });
+
+  // ── X (bottom year) ticks ──
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  xAxis.ticks.forEach(t => {
+    const x = scx(t);
+    c.strokeStyle = '#1a1a1a'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(x, PAD.top+PH); c.lineTo(x, PAD.top+PH-6); c.stroke();
+    c.fillStyle = '#1a1a1a';
+    c.font = '18px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.fillText(fmtTick(t), x, PAD.top+PH+4);
+  });
+
+  // ── Top axis: two rows of metadata above plot ──
+  // Row 1 (WC%, closest to plot border)  — y bottom at PAD.top-8
+  // Row 2 (Flowrate, above WC)           — y bottom at PAD.top-30
+  c.font = '14px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  years.forEach((yr, i) => {
+    const x = scx(yr);
+    // Tick mark pointing up from top border
+    c.strokeStyle = '#1a1a1a'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(x, PAD.top); c.lineTo(x, PAD.top-6); c.stroke();
+    // Row 1: WC
+    c.fillStyle = '#1a1a1a'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+    c.fillText(fmtWC(wc[i]), x, PAD.top - 8);
+    // Row 2: Flowrate
+    c.fillText(fmtFlow(flow[i]), x, PAD.top - 30);
+  });
+
+  // Row axis labels — right-aligned to left of plot
+  c.fillStyle = '#555';
+  c.font = 'italic 13px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  c.textAlign = 'right'; c.textBaseline = 'bottom';
+  c.fillText('WC [%]',     PAD.left - 10, PAD.top - 8);
+  c.fillText('Q [sbbl/d]', PAD.left - 10, PAD.top - 30);
+
+  // ── Axis labels & title ──
+  const xlabel     = document.getElementById('xlabel').value     || 'Field Life [years]';
+  const ylabel     = document.getElementById('ylabel').value     || 'Inlet Pressure [bara]';
+  const chartTitle = document.getElementById('chart-title').value || '';
+  mCanvas(c, xlabel, PAD.left+PW/2, CH-18, 24, '#1a1a1a', 'center', 'bottom');
+  c.save();
+  c.translate(28, PAD.top+PH/2); c.rotate(-Math.PI/2);
+  mCanvas(c, ylabel, 0, 0, 24, '#1a1a1a', 'center', 'top');
+  c.restore();
+  if (chartTitle) mCanvas(c, chartTitle, CW/2, 12, 24, '#1a1a1a', 'center', 'top');
+
+  // ── Legend ──
+  _drawInletLegend(c, PAD, PW, PH);
+
+  // Update y-axis range placeholders
+  const yFmt = v => parseFloat(v.toPrecision(6)).toString();
+  const yMinEl = document.getElementById('ar-ymin');
+  const yMaxEl = document.getElementById('ar-ymax');
+  if (yMinEl && axisRanges.yMin === null) yMinEl.placeholder = yFmt(yAxis.min);
+  if (yMaxEl && axisRanges.yMax === null) yMaxEl.placeholder = yFmt(yAxis.max);
+}
+
+function _drawInletLegend(c, PAD, PW, PH) {
+  if (legendPos === 'hidden' || !inletData) return;
+  const items = inletData.diameters;
+  if (!items.length) return;
+  const legPad=11, legLineH=28, legIconW=34;
+  c.font = '16px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  let maxW = 0;
+  items.forEach(d => { maxW = Math.max(maxW, c.measureText(d.label).width); });
+  const legW = Math.min(legIconW + maxW + legPad*2 + 4, 280);
+  const legH = items.length * legLineH + legPad*2;
+  const { x:legX, y:legY } = legXY(legendPos, PAD, PW, PH, legW, legH);
+  c.fillStyle='#ffffff'; c.strokeStyle='#bbbbbb'; c.lineWidth=1;
+  c.beginPath(); c.rect(legX, legY, legW, legH); c.fill(); c.stroke();
+  items.forEach((d, row) => {
+    const iy = legY+legPad+row*legLineH+legLineH/2;
+    const ix = legX+legPad;
+    c.save(); c.strokeStyle=d.color; c.lineWidth=markerMode==='none'?3.0:2.2;
+    c.beginPath(); c.moveTo(ix,iy); c.lineTo(ix+24,iy); c.stroke(); c.restore();
+    if (markerMode !== 'none') drawMarker(c, d.markerShape||'circle', ix+12, iy, 4.5, d.color);
+    c.fillStyle='#1a1a1a'; c.font='16px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.textAlign='left'; c.textBaseline='middle';
+    c.fillText(d.label, ix+legIconW, iy);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
    COLOUR UTILITY
 ═══════════════════════════════════════════════════════════ */
 function shadeColor(hex, amt) {
@@ -1767,6 +2026,7 @@ function escSVG(s) {
 }
 
 function exportSVG() {
+  if (chartMode === 'inlet') { _exportSVGInlet(); return; }
   const W=960, H=576;
   const PAD={top:55,right:32,bottom:84,left:92};
   const PW=W-PAD.left-PAD.right, PH=H-PAD.top-PAD.bottom;
@@ -1952,6 +2212,146 @@ function exportSVG() {
   const a=document.createElement('a');
   a.href=url; a.download=`${safeName}.svg`; a.click();
   setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INLET PRESSURE CHART — SVG export
+═══════════════════════════════════════════════════════════ */
+function _exportSVGInlet() {
+  if (!inletData) return;
+  const { years, wc, flow, diameters } = inletData;
+  const W=960, H=576;
+  const PAD={top:102,right:40,bottom:84,left:92};
+  const PW=W-PAD.left-PAD.right, PH=H-PAD.top-PAD.bottom;
+
+  const xAxis = { min: years[0], max: years[years.length-1], ticks: years.slice() };
+  const allY  = diameters.flatMap(d => d.values.filter(v => v !== null));
+  const yDMin = axisRanges.yMin !== null ? axisRanges.yMin : Math.min(...allY);
+  const yDMax = axisRanges.yMax !== null ? axisRanges.yMax : Math.max(...allY);
+  const yAxis = niceAxis(yDMin, yDMax);
+  if (axisRanges.yMin !== null) yAxis.min = axisRanges.yMin;
+  if (axisRanges.yMax !== null) yAxis.max = axisRanges.yMax;
+
+  const scx = v => PAD.left + (v - xAxis.min) / (xAxis.max - xAxis.min) * PW;
+  const scy = v => PAD.top  + PH - (v - yAxis.min) / (yAxis.max - yAxis.min) * PH;
+  const f   = n => parseFloat(n.toFixed(2));
+  const serif = "'Helvetica Neue',Helvetica,Arial,sans-serif";
+
+  const p = [];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<defs><clipPath id="plot"><rect x="${PAD.left}" y="${PAD.top}" width="${PW}" height="${PH}"/></clipPath></defs>`);
+  p.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+
+  // Lines
+  diameters.forEach(d => {
+    const pts = years.map((y,i) => ({ x:y, y:d.values[i] })).filter(p => p.y !== null);
+    if (pts.length < 2) return;
+    const lw = lineWeight();
+    const da = splineStyle==='dashed' ? ' stroke-dasharray="7,4"' : '';
+    if (showSpline) {
+      const sp = catmullRomSVGPath(pts, scx, scy, 0.5);
+      p.push(`<path clip-path="url(#plot)" d="${sp}" fill="none" stroke="${d.color}" stroke-width="${lw}"${da}/>`);
+    } else {
+      const pathD = pts.map((pt,i) => `${i===0?'M':'L'} ${f(scx(pt.x))} ${f(scy(pt.y))}`).join(' ');
+      p.push(`<path clip-path="url(#plot)" d="${pathD}" fill="none" stroke="${d.color}" stroke-width="${lw}"${da}/>`);
+    }
+  });
+
+  // Markers
+  if (markerMode !== 'none') {
+    diameters.forEach(d => {
+      const pts = years.map((y,i) => ({ x:y, y:d.values[i] })).filter(p => p.y !== null);
+      pts.forEach((pt, i) => {
+        if (!showMarkerAt(i, pts.length)) return;
+        const mx=f(scx(pt.x)), my=f(scy(pt.y));
+        const m = markerSVGPath(d.markerShape||'circle', mx, my, 5.0);
+        const dk = shadeColor(d.color, -50);
+        if (m.stroke) {
+          p.push(`<${m.tag} clip-path="url(#plot)" ${m.attrs} stroke="${d.color}" stroke-width="1.5" fill="none"/>`);
+        } else if (m.open) {
+          p.push(`<${m.tag} clip-path="url(#plot)" ${m.attrs} fill="rgba(253,252,250,0.9)" stroke="${d.color}" stroke-width="1.0"/>`);
+        } else {
+          p.push(`<${m.tag} clip-path="url(#plot)" ${m.attrs} fill="${d.color}" stroke="${dk}" stroke-width="1.0"/>`);
+        }
+      });
+    });
+  }
+
+  // Plot border
+  p.push(`<rect x="${PAD.left}" y="${PAD.top}" width="${PW}" height="${PH}" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>`);
+
+  // Y ticks
+  yAxis.ticks.forEach(t => {
+    const y = f(scy(t));
+    p.push(`<line x1="${PAD.left}" y1="${y}" x2="${PAD.left+6}" y2="${y}" stroke="#1a1a1a" stroke-width="1.2"/>`);
+    p.push(`<text x="${PAD.left-6}" y="${y}" font-family="${serif}" font-size="18" text-anchor="end" dominant-baseline="middle" fill="#1a1a1a">${escSVG(fmtTick(t))}</text>`);
+  });
+
+  // X (bottom year) ticks
+  xAxis.ticks.forEach(t => {
+    const x = f(scx(t));
+    p.push(`<line x1="${x}" y1="${PAD.top+PH}" x2="${x}" y2="${PAD.top+PH-6}" stroke="#1a1a1a" stroke-width="1.2"/>`);
+    p.push(`<text x="${x}" y="${PAD.top+PH+22}" font-family="${serif}" font-size="18" text-anchor="middle" fill="#1a1a1a">${escSVG(fmtTick(t))}</text>`);
+  });
+
+  // Top axis rows
+  years.forEach((yr, i) => {
+    const x = f(scx(yr));
+    // Tick mark up from top border
+    p.push(`<line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${PAD.top-6}" stroke="#1a1a1a" stroke-width="1.2"/>`);
+    // Row 1: WC (just above tick)
+    p.push(`<text x="${x}" y="${PAD.top-9}" font-family="${serif}" font-size="14" text-anchor="middle" fill="#1a1a1a">${escSVG(fmtWC(wc[i]))}</text>`);
+    // Row 2: Flowrate (above WC)
+    p.push(`<text x="${x}" y="${PAD.top-31}" font-family="${serif}" font-size="14" text-anchor="middle" fill="#1a1a1a">${escSVG(fmtFlow(flow[i]))}</text>`);
+  });
+
+  // Row axis labels
+  p.push(`<text x="${PAD.left-10}" y="${PAD.top-9}" font-family="${serif}" font-size="13" font-style="italic" text-anchor="end" fill="#555">${escSVG('WC [%]')}</text>`);
+  p.push(`<text x="${PAD.left-10}" y="${PAD.top-31}" font-family="${serif}" font-size="13" font-style="italic" text-anchor="end" fill="#555">${escSVG('Q [sbbl/d]')}</text>`);
+
+  // Axis labels & title
+  const xlabel     = document.getElementById('xlabel').value     || 'Field Life [years]';
+  const ylabel     = document.getElementById('ylabel').value     || 'Inlet Pressure [bara]';
+  const chartTitle = document.getElementById('chart-title').value || '';
+  p.push(`<text x="${PAD.left+PW/2}" y="${H-18}" font-family="${serif}" font-size="24" text-anchor="middle" fill="#1a1a1a">${mSVG(xlabel,24)}</text>`);
+  p.push(`<text transform="translate(28,${PAD.top+PH/2}) rotate(-90)" font-family="${serif}" font-size="24" text-anchor="middle" fill="#1a1a1a">${mSVG(ylabel,24)}</text>`);
+  if (chartTitle) p.push(`<text x="${W/2}" y="32" font-family="${serif}" font-size="24" text-anchor="middle" fill="#1a1a1a">${mSVG(chartTitle,24)}</text>`);
+
+  // Legend
+  if (legendPos !== 'hidden' && diameters.length) {
+    const legPad=11, legLineH=28, legIconW=34;
+    const maxW = Math.min(diameters.reduce((mx,d) => Math.max(mx, d.label.length*9), 0), 240);
+    const legW = Math.min(legIconW + maxW + legPad*2, 280);
+    const legH = diameters.length * legLineH + legPad*2;
+    const {x:legX, y:legY} = legXY(legendPos, PAD, PW, PH, legW, legH);
+    p.push(`<rect x="${legX}" y="${legY}" width="${legW}" height="${legH}" fill="#ffffff" stroke="#bbbbbb" stroke-width="1"/>`);
+    diameters.forEach((d, row) => {
+      const iy = legY+legPad+row*legLineH+legLineH/2;
+      const ix = legX+legPad;
+      p.push(`<line x1="${ix}" y1="${iy}" x2="${ix+24}" y2="${iy}" stroke="${d.color}" stroke-width="${markerMode==='none'?3.0:2.2}"/>`);
+      if (markerMode !== 'none') {
+        const lm = markerSVGPath(d.markerShape||'circle', ix+12, iy, 5.0);
+        const dk = shadeColor(d.color, -50);
+        if (lm.stroke) {
+          p.push(`<${lm.tag} ${lm.attrs} stroke="${d.color}" stroke-width="1.5" fill="none"/>`);
+        } else if (lm.open) {
+          p.push(`<${lm.tag} ${lm.attrs} fill="#ffffff" stroke="${d.color}" stroke-width="1.0"/>`);
+        } else {
+          p.push(`<${lm.tag} ${lm.attrs} fill="${d.color}" stroke="${dk}" stroke-width="1.0"/>`);
+        }
+      }
+      p.push(`<text x="${ix+legIconW}" y="${iy}" font-family="${serif}" font-size="16" dominant-baseline="middle" fill="#1a1a1a">${escSVG(d.label)}</text>`);
+    });
+  }
+
+  p.push(`</svg>`);
+  const rawName  = (document.getElementById('svg-filename').value || 'inlet_pressure').trim();
+  const safeName = rawName.replace(/\.svg$/i,'').replace(/[\\/:*?"<>|]/g,'_') || 'inlet_pressure';
+  const blob = new Blob([p.join('\n')], {type:'image/svg+xml;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=`${safeName}.svg`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 /* ═══════════════════════════════════════════════════════════
