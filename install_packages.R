@@ -14,7 +14,9 @@ packages <- c(
   "svglite",      # High-quality SVG export
   "ragg",         # High-quality PNG/TIFF export (AGG backend)
   "extrafont",    # System font access
-  "showtext"      # Google Fonts and custom font rendering
+  "showtext",     # Google Fonts and custom font rendering
+  "shiny",        # Interactive web app framework
+  "colourpicker"  # Color picker widget for Shiny
 )
 
 # Install missing packages

@@ -10,7 +10,20 @@ Publication-quality pipeline profile plots using **R** and **ggplot2**, migrated
 source("install_packages.R")
 ```
 
-### 2. Run the example
+### 2. Launch the interactive browser app
+
+```bash
+Rscript app.R
+```
+
+This opens a **Shiny web app** in your browser — a full graph editor where you can:
+- Upload Excel/CSV files (or load demo data)
+- Toggle smooth splines, markers, grid lines
+- Add reference lines and annotations interactively
+- Adjust axis ranges, legend position, font sizes
+- Download publication-ready PDF, SVG, or PNG
+
+### 3. Or run the script examples
 
 ```r
 source("example_pipeline_plot.R")
@@ -26,6 +39,7 @@ Academic-graphs/
 │   ├── theme_academic.R      # ggplot2 theme, palettes, export helpers
 │   └── pipeline_plotter.R    # Main plotting functions + data import
 ├── output/                   # Generated figures (PDF, SVG, PNG)
+├── app.R                     # Interactive browser app (Shiny)
 ├── install_packages.R        # One-time package installer
 ├── example_pipeline_plot.R   # Example usage with all features
 ├── pipeline_plotter6.html    # Original HTML/Canvas version
