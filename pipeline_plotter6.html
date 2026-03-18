@@ -1,0 +1,2001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Profile Plotter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Using system Helvetica — no import needed */
+
+:root {
+  --bg:     #f7f4ef;
+  --paper:  #fdfcfa;
+  --ink:    #1a1714;
+  --rule:   #c8bfb0;
+  --accent: #8b3a1e;
+  --blue:   #2a4f6e;
+  --green:  #2e6b45;
+  --grid:   #e4ddd4;
+  --muted:  #7a7060;
+  --mono:   'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --serif:  'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  font-family: var(--serif);
+  color: var(--ink);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 36px 20px 60px;
+}
+
+header { text-align: center; margin-bottom: 28px; }
+header h1 { font-size: 1.9rem; font-weight: 600; letter-spacing: -0.01em; }
+header p  { font-size: .95rem; font-style: italic; color: var(--muted); margin-top: 4px; }
+
+.layout {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  max-width: 1280px;
+  align-items: flex-start;
+}
+
+.sidebar {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 13px 15px;
+}
+.panel + .panel { border-top: none; }
+.panel:first-child { border-radius: 4px 4px 0 0; }
+.panel:last-child  { border-radius: 0 0 4px 4px; }
+
+.panel-title {
+  font-family: var(--mono);
+  font-size: .61rem;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--grid);
+}
+
+label {
+  display: block;
+  font-family: var(--mono);
+  font-size: .61rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  font-family: var(--mono);
+  font-size: .78rem;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 5px 8px;
+  border-radius: 2px;
+  outline: none;
+  width: 100%;
+  transition: border-color .15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus { border-color: var(--blue); }
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5'%3E%3Cpath d='M0 0l4.5 5L9 0z' fill='%237a7060'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 22px;
+  cursor: pointer;
+}
+
+.field-row { display: flex; gap: 7px; margin-bottom: 8px; }
+.field-row > * { flex: 1; }
+
+.btn {
+  font-family: var(--mono);
+  font-size: .72rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  border: none;
+  padding: 6px 13px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background .15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.btn-dark  { background: var(--ink); color: var(--bg); width: 100%; margin-top: 6px; }
+.btn-dark:hover  { background: var(--accent); }
+.btn-ink   { background: var(--ink); color: var(--bg); }
+.btn-ink:hover   { background: var(--accent); }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: .67rem;
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.btn-amber { background: #8b6b1e; color: #fff; border: none; }
+.btn-amber:hover { background: #6b4e0e; }
+
+.btn-row { display: flex; gap: 6px; margin-top: 8px; }
+.btn-row .btn { flex: 1; margin-top: 0; }
+
+.toggle-group { display: flex; gap: 5px; }
+.toggle-btn {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 5px 11px;
+  border: 1px solid;
+  transition: background .15s, color .15s;
+  flex: 1;
+}
+.toggle-btn.on  { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.toggle-btn.off { background: transparent; color: #aaa; border-color: #ccc; }
+
+.upload-zone {
+  border: 2px dashed var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  padding: 22px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  position: relative;
+  margin-bottom: 8px;
+}
+.upload-zone.drag-over { border-color: var(--accent); background: #fdf6f3; }
+.upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-zone .upload-icon { font-size: 1.5rem; display: block; margin-bottom: 5px; color: var(--muted); }
+.upload-zone p { font-size: .88rem; color: var(--muted); }
+.upload-zone strong { color: var(--accent); font-style: italic; }
+
+.status-line { font-family: var(--mono); font-size: .67rem; color: var(--green); min-height: 1rem; margin-bottom: 4px; }
+.status-line.err { color: var(--accent); }
+
+/* Chart */
+.chart-wrap {
+  flex: 1;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 16px 16px 12px;
+  min-width: 0;
+}
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.toolbar-label {
+  font-family: var(--mono);
+  font-size: .61rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: #999;
+}
+.spacer { flex: 1; }
+canvas { display: block; }
+
+/* Series legend panel */
+.series-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: .68rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 5px 7px;
+  margin-top: 5px;
+  transition: opacity .15s;
+}
+.series-item.hidden-series { opacity: .4; }
+.series-swatch {
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.series-label {
+  flex: 1;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+  font-size: .62rem;
+}
+.series-toggle {
+  font-family: var(--mono);
+  font-size: .60rem;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--muted);
+  padding: 2px 5px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all .12s;
+  flex-shrink: 0;
+}
+.series-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.series-toggle.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Flow regime banding */
+.regime-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.regime-chip {
+  font-family: var(--mono);
+  font-size: .58rem;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* Ref items */
+.ref-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: .72rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 5px 8px;
+  margin-top: 5px;
+}
+.ref-swatch { width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+.ref-label  { flex: 1; color: var(--muted); }
+.btn-remove {
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); font-size: .72rem; padding: 5px 6px;
+  cursor: pointer; border-radius: 2px; font-family: var(--mono);
+  transition: all .12s; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+}
+.btn-remove:hover { color: #7a1a1a; border-color: #d0a0a0; background: #fdf5f5; }
+
+hr { border: none; border-top: 1px solid var(--grid); margin: 10px 0; }
+
+/* Subscript/superscript toolbar */
+.script-bar { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; }
+.sb-btn {
+  font-family: var(--mono); font-size: .72rem;
+  background: var(--bg); border: 1px solid var(--rule);
+  color: var(--ink); padding: 3px 7px; border-radius: 2px;
+  cursor: pointer; line-height: 1.4;
+  transition: border-color .12s, background .12s;
+}
+.sb-btn:hover { border-color: var(--accent); color: var(--accent); }
+.sb-hint { font-family: var(--mono); font-size: .57rem; color: var(--muted); font-style: italic; flex: 1; }
+.label-preview {
+  font-family: var(--serif); font-size: .88rem; color: var(--ink);
+  min-height: 1.3em; padding: 2px 0 3px; font-style: italic;
+}
+
+/* Legend position picker */
+.leg-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-top: 6px;
+}
+.leg-cell {
+  font-family: var(--mono); font-size: .58rem; text-transform: uppercase;
+  letter-spacing: .05em; border: 1px solid var(--rule); border-radius: 2px;
+  padding: 5px 3px; text-align: center; cursor: pointer;
+  color: var(--muted); background: var(--bg); transition: all .12s; line-height: 1.2;
+}
+.leg-cell:hover { border-color: var(--accent); color: var(--ink); }
+.leg-cell.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.leg-cell.center-cell { color: #ccc; cursor: default; }
+.leg-cell.center-cell:hover { border-color: var(--rule); color: #ccc; }
+
+/* Annotation panel */
+.ann-item {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: .65rem;
+  background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 2px; padding: 5px 7px; margin-top: 5px;
+}
+.ann-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ann-label { flex: 1; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pipeline Profile Plotter</h1>
+  <p>Multi-series import &nbsp;·&nbsp; Pressure, Temperature &amp; Flow profiles &nbsp;·&nbsp; SVG export</p>
+</header>
+
+<div class="layout">
+
+  <!-- ══ SIDEBAR ══ -->
+  <div class="sidebar">
+
+    <!-- Import -->
+    <div class="panel">
+      <div class="panel-title">Import</div>
+      <div class="upload-zone" id="file-drop"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleDrop(event)">
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv" onchange="handleFile(this.files[0])">
+        <span class="upload-icon">⬆</span>
+        <p>Drag &amp; drop or <strong>click to browse</strong><br><span style="font-size:.8rem">.xlsx / .csv</span></p>
+      </div>
+      <div class="status-line" id="import-status"></div>
+      <div id="import-col-section" style="display:none">
+        <div class="field-row" style="margin-bottom:6px;">
+          <div><label>Sheet</label><select id="sheet-sel" onchange="onSheetChange()"></select></div>
+        </div>
+        <div style="margin-bottom:6px;">
+          <label>X column (shared axis)</label>
+          <select id="col-x"></select>
+        </div>
+        <div style="margin-bottom:6px;">
+          <label>Y series (auto-detected pairs)</label>
+          <div id="y-series-list" style="max-height:120px;overflow-y:auto;margin-top:4px;"></div>
+        </div>
+        <div class="field-row">
+          <div><label>Header row?</label>
+            <select id="has-header">
+              <option value="1">Yes — row 1 is header</option>
+              <option value="0">No — data from row 1</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-dark" onclick="applyImport()">Load into chart</button>
+      </div>
+    </div>
+
+    <!-- Axis Labels -->
+    <div class="panel">
+      <div class="panel-title">Axis Labels</div>
+      <div class="script-bar">
+        <button class="sb-btn" onclick="insertScript('xlabel','sub')">X<sub style="font-size:.6em">2</sub></button>
+        <button class="sb-btn" onclick="insertScript('xlabel','sup')">X<sup style="font-size:.6em">2</sup></button>
+        <span class="sb-hint">_{…} sub &nbsp; ^{…} sup</span>
+      </div>
+      <div style="margin-bottom:4px;">
+        <label>X axis</label>
+        <input type="text" id="xlabel" value="Pipeline Length [m]" oninput="updateLabelPreview('xlabel','prev-xlabel');drawChart()">
+        <div class="label-preview" id="prev-xlabel">Pipeline Length [m]</div>
+      </div>
+      <div class="script-bar" style="margin-top:6px;">
+        <button class="sb-btn" onclick="insertScript('ylabel','sub')">X<sub style="font-size:.6em">2</sub></button>
+        <button class="sb-btn" onclick="insertScript('ylabel','sup')">X<sup style="font-size:.6em">2</sup></button>
+        <span class="sb-hint">_{…} sub &nbsp; ^{…} sup</span>
+      </div>
+      <div style="margin-bottom:4px;">
+        <label>Y axis</label>
+        <input type="text" id="ylabel" value="y" oninput="updateLabelPreview('ylabel','prev-ylabel');drawChart()">
+        <div class="label-preview" id="prev-ylabel">y</div>
+      </div>
+      <div class="script-bar" style="margin-top:6px;">
+        <button class="sb-btn" onclick="insertScript('chart-title','sub')">X<sub style="font-size:.6em">2</sub></button>
+        <button class="sb-btn" onclick="insertScript('chart-title','sup')">X<sup style="font-size:.6em">2</sup></button>
+        <span class="sb-hint">_{…} sub &nbsp; ^{…} sup</span>
+      </div>
+      <div style="margin-top:4px;">
+        <label>Chart title</label>
+        <input type="text" id="chart-title" value="Pipeline Profile"
+               oninput="updateLabelPreview('chart-title','prev-title');
+                        syncFilename(this.value);
+                        drawChart()">
+        <div class="label-preview" id="prev-title">Pipeline Profile</div>
+      </div>
+    </div>
+
+    <!-- Series -->
+    <div class="panel">
+      <div class="panel-title">Series</div>
+      <div id="series-panel" style="max-height:280px;overflow-y:auto;"></div>
+      <div style="margin-top:8px;display:flex;gap:6px;">
+        <button class="btn btn-ghost" style="flex:1;font-size:.62rem;" onclick="setAllSeries(true)">Show All</button>
+        <button class="btn btn-ghost" style="flex:1;font-size:.62rem;" onclick="setAllSeries(false)">Hide All</button>
+      </div>
+    </div>
+
+    <!-- Spline -->
+    <div class="panel">
+      <div class="panel-title">Smooth Curve</div>
+      <div style="margin-bottom:8px;">
+        <label>Show spline</label>
+        <div class="toggle-group">
+          <button class="toggle-btn on"  id="btn-spline-on"  onclick="setShowSpline(true)">Show</button>
+          <button class="toggle-btn off" id="btn-spline-off" onclick="setShowSpline(false)">Hide</button>
+        </div>
+      </div>
+      <div>
+        <label>Spline style</label>
+        <div class="toggle-group">
+          <button class="toggle-btn on"  id="btn-sp-solid"  onclick="setSplineStyle('solid')">Solid</button>
+          <button class="toggle-btn off" id="btn-sp-dashed" onclick="setSplineStyle('dashed')">Dashed</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Markers -->
+    <div class="panel">
+      <div class="panel-title">Markers</div>
+      <div style="margin-bottom:8px;">
+        <label>Marker mode</label>
+        <div class="toggle-group">
+          <button class="toggle-btn on"  id="btn-mk-all"  onclick="setMarkerMode('all')">All</button>
+          <button class="toggle-btn off" id="btn-mk-nth"  onclick="setMarkerMode('nth')">Every N</button>
+          <button class="toggle-btn off" id="btn-mk-none" onclick="setMarkerMode('none')">None</button>
+        </div>
+      </div>
+      <div id="marker-nth-row" style="display:none;">
+        <label>Show every N<sup style="font-size:.55em">th</sup> point</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="range" id="marker-nth-slider" min="2" max="50" value="10"
+                 oninput="setMarkerNth(+this.value)"
+                 style="flex:1;accent-color:var(--accent);cursor:pointer;">
+          <span id="marker-nth-label" style="font-family:var(--mono);font-size:.75rem;
+                color:var(--ink);min-width:24px;text-align:right;">10</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flow Regime -->
+    <div class="panel" id="flow-regime-panel" style="display:none;">
+      <div class="panel-title">Flow Regime Banding</div>
+      <div style="margin-bottom:8px;">
+        <label>Show bands</label>
+        <div class="toggle-group">
+          <button class="toggle-btn on"  id="btn-regime-on"  onclick="setShowRegime(true)">Show</button>
+          <button class="toggle-btn off" id="btn-regime-off" onclick="setShowRegime(false)">Hide</button>
+        </div>
+      </div>
+      <div class="regime-legend" id="regime-legend"></div>
+    </div>
+
+    <!-- Axis Ranges -->
+    <div class="panel">
+      <div class="panel-title">Axis Ranges</div>
+      <div style="margin-bottom:8px;">
+        <label style="margin-bottom:5px;">X axis</label>
+        <div class="field-row" style="margin-bottom:0;">
+          <div>
+            <label>Min</label>
+            <input type="number" id="ar-xmin" placeholder="auto" step="any"
+                   oninput="onAxisRangeInput('ar-xmin')"
+                   onkeydown="if(event.key==='Enter')this.blur()">
+          </div>
+          <div>
+            <label>Max</label>
+            <input type="number" id="ar-xmax" placeholder="auto" step="any"
+                   oninput="onAxisRangeInput('ar-xmax')"
+                   onkeydown="if(event.key==='Enter')this.blur()">
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="margin-bottom:5px;">Y axis</label>
+        <div class="field-row" style="margin-bottom:0;">
+          <div>
+            <label>Min</label>
+            <input type="number" id="ar-ymin" placeholder="auto" step="any"
+                   oninput="onAxisRangeInput('ar-ymin')"
+                   onkeydown="if(event.key==='Enter')this.blur()">
+          </div>
+          <div>
+            <label>Max</label>
+            <input type="number" id="ar-ymax" placeholder="auto" step="any"
+                   oninput="onAxisRangeInput('ar-ymax')"
+                   onkeydown="if(event.key==='Enter')this.blur()">
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-ghost" onclick="resetAxisRanges()" style="width:100%;font-size:.64rem;">Reset to auto</button>
+    </div>
+
+    <!-- Reference Lines -->
+    <div class="panel">
+      <div class="panel-title">Reference Lines</div>
+      <div class="field-row">
+        <div>
+          <label>Axis</label>
+          <select id="line-axis">
+            <option value="x">X – vertical</option>
+            <option value="y">Y – horizontal</option>
+          </select>
+        </div>
+        <div>
+          <label>Value</label>
+          <input type="number" id="line-val" placeholder="e.g. 50" step="any">
+        </div>
+      </div>
+      <div style="margin-bottom:6px;">
+        <label>Label (optional)</label>
+        <input type="text" id="line-label" placeholder="e.g. Min. pressure">
+      </div>
+      <div class="field-row" style="margin-bottom:6px;">
+        <div>
+          <label>Label side</label>
+          <select id="line-label-side">
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+        <div>
+          <label>Label position</label>
+          <select id="line-label-pos">
+            <option value="above">Above</option>
+            <option value="below">Below</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-ghost" onclick="addRefLine()" style="width:100%;margin-top:0;">Add line</button>
+      <div id="lines-list" style="margin-top:6px;"></div>
+    </div>
+
+    <!-- Annotations -->
+    <div class="panel">
+      <div class="panel-title">Annotations</div>
+      <div style="margin-bottom:8px;">
+        <label>Series (sets colour)</label>
+        <select id="ann-series">
+          <option value="-1">— None / custom —</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <div><label>X</label><input type="number" id="ann-x" placeholder="x value" step="any"></div>
+        <div><label>Y</label><input type="number" id="ann-y" placeholder="y value" step="any"></div>
+      </div>
+      <div style="margin-bottom:6px;">
+        <label>Text</label>
+        <input type="text" id="ann-text" placeholder="e.g. 0.3048 m ✓">
+      </div>
+      <div style="margin-bottom:8px;">
+        <label>Leader direction</label>
+        <div class="toggle-group">
+          <button class="toggle-btn off" id="btn-ann-ul" onclick="setAnnDir('up-left')">↖</button>
+          <button class="toggle-btn on"  id="btn-ann-ur" onclick="setAnnDir('up-right')">↗</button>
+          <button class="toggle-btn off" id="btn-ann-dl" onclick="setAnnDir('down-left')">↙</button>
+          <button class="toggle-btn off" id="btn-ann-dr" onclick="setAnnDir('down-right')">↘</button>
+        </div>
+      </div>
+      <button class="btn btn-ghost" onclick="addAnnotation()" style="width:100%;">Add annotation</button>
+      <div id="ann-list" style="margin-top:6px;"></div>
+    </div>
+
+    <!-- Legend Position -->
+    <div class="panel">
+      <div class="panel-title">Legend Position</div>
+      <div class="leg-grid" id="leg-grid">
+        <button class="leg-cell" data-pos="top-left"     onclick="setLegPos('top-left')">Top<br>Left</button>
+        <button class="leg-cell" data-pos="top-center"   onclick="setLegPos('top-center')">Top<br>Centre</button>
+        <button class="leg-cell" data-pos="top-right"    onclick="setLegPos('top-right')">Top<br>Right</button>
+        <button class="leg-cell" data-pos="mid-left"     onclick="setLegPos('mid-left')">Mid<br>Left</button>
+        <button class="leg-cell center-cell">·</button>
+        <button class="leg-cell" data-pos="mid-right"    onclick="setLegPos('mid-right')">Mid<br>Right</button>
+        <button class="leg-cell active" data-pos="bot-right" onclick="setLegPos('bot-right')">Bot<br>Right</button>
+        <button class="leg-cell" data-pos="bot-center"   onclick="setLegPos('bot-center')">Bot<br>Centre</button>
+        <button class="leg-cell" data-pos="bot-left"     onclick="setLegPos('bot-left')">Bot<br>Left</button>
+      </div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-ghost" id="btn-leg-hide" onclick="setLegPos('hidden')" style="width:100%;font-size:.64rem;">Hide legend</button>
+      </div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+  <!-- ══ CHART ══ -->
+  <div class="chart-wrap">
+    <div class="chart-toolbar">
+      <span class="toolbar-label">Spline:</span>
+      <button class="toggle-btn on" id="tog-spline" onclick="toggleSpline()" style="flex:none;padding:4px 10px;">Show</button>
+      <div class="spacer"></div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div style="position:relative;">
+          <input type="text" id="svg-filename" value="Year_1"
+                 placeholder="filename"
+                 style="font-family:var(--mono);font-size:.72rem;border:1px solid var(--rule);
+                        background:var(--bg);color:var(--ink);padding:5px 42px 5px 8px;
+                        border-radius:2px;outline:none;width:148px;transition:border-color .15s;"
+                 onfocus="this.style.borderColor='var(--blue)'"
+                 onblur="this.style.borderColor='var(--rule)'"
+                 oninput="this.dataset.manual='1'"
+                 onkeydown="if(event.key==='Enter')exportSVG()">
+          <span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);
+                       font-family:var(--mono);font-size:.62rem;color:var(--muted);
+                       pointer-events:none;">.svg</span>
+        </div>
+        <button class="btn btn-amber" onclick="exportSVG()" style="font-size:.69rem;padding:5px 13px;">⬇ SVG</button>
+      </div>
+    </div>
+    <canvas id="myCanvas"></canvas>
+  </div>
+
+</div><!-- /layout -->
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   ACADEMIC COLOUR PALETTE — 12 distinct, print-safe colours
+═══════════════════════════════════════════════════════════ */
+const SERIES_COLORS = [
+  '#8b3a1e', // dark terracotta
+  '#2a4f6e', // navy blue
+  '#2e6b45', // forest green
+  '#7a5318', // amber brown
+  '#5b2d8e', // deep violet
+  '#1a6b6b', // dark teal
+  '#8b1a4a', // crimson
+  '#3d5a1e', // olive green
+  '#1e3a6e', // dark slate blue
+  '#8b6b00', // dark gold
+  '#4a1a2e', // dark plum
+  '#006b4e', // emerald
+];
+
+/* Flow regime codes → labels and colours */
+const FLOW_REGIMES = {
+  1: { label: 'Stratified', color: 'rgba(42,79,110,0.12)',  border: 'rgba(42,79,110,0.5)'  },
+  2: { label: 'Wavy',       color: 'rgba(46,107,69,0.12)',  border: 'rgba(46,107,69,0.5)'  },
+  3: { label: 'Slug',       color: 'rgba(139,58,30,0.12)',  border: 'rgba(139,58,30,0.5)'  },
+  4: { label: 'Annular',    color: 'rgba(122,83,24,0.12)',  border: 'rgba(122,83,24,0.5)'  },
+  5: { label: 'Bubble',     color: 'rgba(91,45,142,0.12)',  border: 'rgba(91,45,142,0.5)'  },
+  6: { label: 'Dispersed',  color: 'rgba(26,107,107,0.12)', border: 'rgba(26,107,107,0.5)' },
+};
+
+const REF_COLORS = ['#8b3a1e','#2a4f6e','#2e6b45','#7a5318','#7a1e1e','#4a2e6b'];
+
+/* Academic marker shapes — standard set used in scientific publications */
+const MARKER_SHAPES = [
+  'circle',           // ●
+  'square',           // ■
+  'triangle-up',      // ▲
+  'diamond',          // ◆
+  'triangle-down',    // ▼
+  'cross',            // ✕  (open cross)
+  'circle-open',      // ○
+  'square-open',      // □
+  'triangle-up-open', // △
+  'diamond-open',     // ◇
+  'plus',             // +
+  'triangle-down-open', // ▽
+];
+
+/* Draw a single marker on canvas at (px, py) with given shape, radius r, color */
+function drawMarker(c, shape, px, py, r, color) {
+  c.save();
+  c.fillStyle   = color;
+  c.strokeStyle = shadeColor(color, -50);
+  c.lineWidth   = 1.0;
+  const isOpen = shape.endsWith('-open');
+  const base   = isOpen ? shape.replace('-open','') : shape;
+  c.beginPath();
+  if (base === 'circle') {
+    c.arc(px, py, r, 0, Math.PI*2);
+  } else if (base === 'square') {
+    c.rect(px - r*0.88, py - r*0.88, r*1.76, r*1.76);
+  } else if (base === 'triangle-up') {
+    const h = r * 1.73;
+    c.moveTo(px,       py - r*1.05);
+    c.lineTo(px + h*0.6, py + r*0.7);
+    c.lineTo(px - h*0.6, py + r*0.7);
+    c.closePath();
+  } else if (base === 'triangle-down') {
+    const h = r * 1.73;
+    c.moveTo(px,       py + r*1.05);
+    c.lineTo(px + h*0.6, py - r*0.7);
+    c.lineTo(px - h*0.6, py - r*0.7);
+    c.closePath();
+  } else if (base === 'diamond') {
+    c.moveTo(px,       py - r*1.2);
+    c.lineTo(px + r*0.85, py);
+    c.lineTo(px,       py + r*1.2);
+    c.lineTo(px - r*0.85, py);
+    c.closePath();
+  } else if (base === 'cross') {
+    // X cross
+    const a = r * 0.72;
+    c.moveTo(px-a, py-a); c.lineTo(px+a, py+a);
+    c.moveTo(px+a, py-a); c.lineTo(px-a, py+a);
+    c.strokeStyle = color; c.lineWidth = 1.5;
+    c.stroke(); c.restore(); return;
+  } else if (base === 'plus') {
+    c.moveTo(px,   py-r*1.1); c.lineTo(px,   py+r*1.1);
+    c.moveTo(px-r*1.1, py);   c.lineTo(px+r*1.1, py);
+    c.strokeStyle = color; c.lineWidth = 1.5;
+    c.stroke(); c.restore(); return;
+  } else {
+    c.arc(px, py, r, 0, Math.PI*2); // fallback
+  }
+  if (isOpen) {
+    c.fillStyle = 'rgba(253,252,250,0.9)';
+    c.fill(); c.stroke();
+  } else {
+    c.fill(); c.stroke();
+  }
+  c.restore();
+}
+
+/* SVG path string for a marker shape centred at (cx,cy) with radius r */
+function markerSVGPath(shape, cx, cy, r) {
+  const isOpen = shape.endsWith('-open');
+  const base   = isOpen ? shape.replace('-open','') : shape;
+  const f = n => parseFloat(n.toFixed(2));
+  if (base === 'circle') {
+    return { tag:'circle', attrs:`cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}"`, open:isOpen };
+  } else if (base === 'square') {
+    const s = r*0.88;
+    return { tag:'rect', attrs:`x="${f(cx-s)}" y="${f(cy-s)}" width="${f(s*2)}" height="${f(s*2)}"`, open:isOpen };
+  } else if (base === 'triangle-up') {
+    const h = r*1.73;
+    return { tag:'polygon', attrs:`points="${f(cx)},${f(cy-r*1.05)} ${f(cx+h*0.6)},${f(cy+r*0.7)} ${f(cx-h*0.6)},${f(cy+r*0.7)}"`, open:isOpen };
+  } else if (base === 'triangle-down') {
+    const h = r*1.73;
+    return { tag:'polygon', attrs:`points="${f(cx)},${f(cy+r*1.05)} ${f(cx+h*0.6)},${f(cy-r*0.7)} ${f(cx-h*0.6)},${f(cy-r*0.7)}"`, open:isOpen };
+  } else if (base === 'diamond') {
+    return { tag:'polygon', attrs:`points="${f(cx)},${f(cy-r*1.2)} ${f(cx+r*0.85)},${f(cy)} ${f(cx)},${f(cy+r*1.2)} ${f(cx-r*0.85)},${f(cy)}"`, open:isOpen };
+  } else if (base === 'cross') {
+    const a = r*0.72;
+    return { tag:'path', attrs:`d="M${f(cx-a)},${f(cy-a)} L${f(cx+a)},${f(cy+a)} M${f(cx+a)},${f(cy-a)} L${f(cx-a)},${f(cy+a)}"`, open:true, stroke:true };
+  } else if (base === 'plus') {
+    return { tag:'path', attrs:`d="M${f(cx)},${f(cy-r*1.1)} L${f(cx)},${f(cy+r*1.1)} M${f(cx-r*1.1)},${f(cy)} L${f(cx+r*1.1)},${f(cy)}"`, open:true, stroke:true };
+  }
+  return { tag:'circle', attrs:`cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}"`, open:isOpen };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════ */
+let seriesData   = [];  // [{label, color, points:[{x,y}], visible, isRegime}]
+let refLines     = [];  // [{axis, val, color, label}]
+let annotations  = [];  // [{x, y, text, color}]
+let showSpline   = true;
+let showRegime   = true;
+let splineStyle  = 'solid';
+let legendPos    = 'bot-right';
+let isFlowRegime = false;
+// Marker mode: 'all' | 'none' | 'nth'
+let markerMode   = 'all';
+let markerNth    = 10;   // used when mode = 'nth'
+let annDir       = 'up-right'; // default annotation leader direction
+let _wb          = null;
+let _rawData    = [];
+
+// Axis range overrides — null means auto (data-driven)
+let axisRanges = { xMin: null, xMax: null, yMin: null, yMax: null };
+
+/* ═══════════════════════════════════════════════════════════
+   MARKUP ENGINE  _{x} → subscript   ^{x} → superscript
+═══════════════════════════════════════════════════════════ */
+function _tok(s) {
+  const out = [];
+  const re  = /(\^|_)\{([^}]*)\}|([^_^]+|[_^](?!\{))/g;
+  let m;
+  while ((m = re.exec(String(s ?? ''))) !== null) {
+    if      (m[1]==='^') out.push({t:'sup', v:m[2]});
+    else if (m[1]==='_' ) out.push({t:'sub', v:m[2]});
+    else                   out.push({t:'txt', v:m[3]});
+  }
+  return out;
+}
+function mHTML(s) {
+  return _tok(s).map(k => {
+    const v = String(k.v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return k.t==='sup'?`<sup>${v}</sup>`:k.t==='sub'?`<sub>${v}</sub>`:v;
+  }).join('');
+}
+function mCanvas(c, s, x, y, baseFontSize, fill, align, baseline) {
+  const tokens = _tok(s);
+  c.save();
+  c.fillStyle = fill || c.fillStyle;
+  c.textBaseline = baseline || 'middle';
+  c.textAlign = 'left';
+  const subSz = baseFontSize * 0.70;
+  let totalW = 0;
+  tokens.forEach(k => {
+    c.font = k.t==='txt'
+      ? `${baseFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`
+      : `${subSz}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    totalW += c.measureText(k.v).width;
+  });
+  let cx = x;
+  if (align === 'center') cx = x - totalW/2;
+  else if (align === 'right') cx = x - totalW;
+  tokens.forEach(k => {
+    let dy = 0, sz = baseFontSize;
+    if (k.t === 'sup') { dy = -baseFontSize * 0.32; sz = subSz; }
+    if (k.t === 'sub') { dy =  baseFontSize * 0.22; sz = subSz; }
+    c.font = `${sz}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    c.fillText(k.v, cx, y + dy);
+    cx += c.measureText(k.v).width;
+  });
+  c.restore();
+  return totalW;
+}
+function mSVG(s, sz) {
+  const tokens = _tok(s);
+  const subSz  = sz * 0.70;
+  let pendingDy = 0, pendingSz = sz;
+  const parts = tokens.map(k => {
+    const v = String(k.v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let dy, thisSz;
+    if (k.t === 'sup') {
+      dy = pendingDy + (-sz*0.32); thisSz = subSz;
+      pendingDy = sz*0.32; pendingSz = sz;
+    } else if (k.t === 'sub') {
+      dy = pendingDy + (sz*0.22); thisSz = subSz;
+      pendingDy = -(sz*0.22); pendingSz = sz;
+    } else {
+      dy = pendingDy; thisSz = pendingSz;
+      pendingDy = 0; pendingSz = sz;
+    }
+    const dyAttr = dy    !== 0  ? ` dy="${parseFloat(dy.toFixed(3))}"` : '';
+    const szAttr = thisSz !== sz ? ` font-size="${thisSz}"`             : '';
+    return `<tspan${dyAttr}${szAttr}>${v}</tspan>`;
+  });
+  if (pendingDy !== 0) parts.push(`<tspan dy="${parseFloat(pendingDy.toFixed(3))}" font-size="${sz}">&#8203;</tspan>`);
+  return parts.join('');
+}
+function insertScript(inputId, type) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  inp.focus();
+  const open = type==='sub' ? '_{' : '^{';
+  const s=inp.selectionStart, e=inp.selectionEnd;
+  const sel=inp.value.slice(s,e);
+  inp.setRangeText(open+sel+'}', s, e, 'end');
+  if (s===e) inp.setSelectionRange(s+open.length, s+open.length);
+  inp.dispatchEvent(new Event('input',{bubbles:true}));
+}
+function updateLabelPreview(inputId, previewId) {
+  const val = document.getElementById(inputId).value;
+  document.getElementById(previewId).innerHTML = mHTML(val) || '&nbsp;';
+}
+
+function syncFilename(title) {
+  const fn = document.getElementById('svg-filename');
+  if (!fn) return;
+  // Only auto-sync if the user hasn't manually edited the filename
+  if (!fn.dataset.manual) {
+    fn.value = title.trim().replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_') || 'pipeline_profile';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FILE IMPORT
+═══════════════════════════════════════════════════════════ */
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('file-drop').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+}
+
+function handleFile(file) {
+  const st = document.getElementById('import-status');
+  st.className = 'status-line';
+  st.textContent = 'Reading…';
+  const isCSV = /\.csv$/i.test(file.name);
+  const reader = new FileReader();
+  reader.onerror = () => { st.className='status-line err'; st.textContent='✗ Cannot read file'; };
+  reader.onload = ev => {
+    try {
+      const opts = { cellFormula: false, raw: false };
+      _wb = isCSV
+        ? XLSX.read(ev.target.result, { type:'string',  ...opts })
+        : XLSX.read(new Uint8Array(ev.target.result), { type:'array', ...opts });
+
+      const sel = document.getElementById('sheet-sel');
+      sel.innerHTML = '';
+      _wb.SheetNames.forEach((n, i) => {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = n.trim(); o.title = n;
+        sel.appendChild(o);
+      });
+
+      document.getElementById('import-col-section').style.display = '';
+      st.textContent = `✓ "${file.name}" — ${_wb.SheetNames.length} sheet(s)`;
+      onSheetChange();
+    } catch(err) {
+      st.className = 'status-line err';
+      st.textContent = '✗ ' + err.message;
+    }
+  };
+  isCSV ? reader.readAsText(file) : reader.readAsArrayBuffer(file);
+}
+
+function onSheetChange() {
+  const idx  = parseInt(document.getElementById('sheet-sel').value) || 0;
+  const name = _wb.SheetNames[idx];
+  const ws   = _wb.Sheets[name];
+  if (!ws) return;
+
+  const raw = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false });
+  _rawData = raw.filter(r => r.some(v => String(v).trim() !== ''));
+
+  const hasHeader = document.getElementById('has-header').value === '1';
+  const headerRow = hasHeader ? _rawData[0] : null;
+  const maxCols   = Math.max(..._rawData.map(r => r.length));
+
+  // Populate X column selector — find first column with "length" or default to col 0
+  populateColSel('col-x', headerRow, maxCols, 0);
+  const colXSel = document.getElementById('col-x');
+  if (headerRow) {
+    const lIdx = headerRow.findIndex(h => /length/i.test(String(h)));
+    if (lIdx >= 0) colXSel.value = lIdx;
+  }
+
+  // Auto-detect Y series (paired columns: same x repeated, different y)
+  detectYSeries(headerRow, maxCols);
+
+  // Auto-set axis labels from sheet name
+  const sheetName = _wb.SheetNames[idx];
+  autoSetLabels(sheetName, headerRow);
+}
+
+function autoSetLabels(sheetName, headerRow) {
+  // Try to set chart title from sheet name
+  document.getElementById('chart-title').value = sheetName;
+  updateLabelPreview('chart-title','prev-title');
+  syncFilename(sheetName);
+
+  // Try to set Y label from first Y-column header
+  if (headerRow) {
+    // Find a non-length column header
+    const yHeader = headerRow.find(h => h && !/length/i.test(String(h)));
+    if (yHeader) {
+      // Extract unit from header — e.g. "PT [bara]" → "PT [bara]"
+      const clean = String(yHeader).replace(/"[^"]*"/g,'').trim().replace(/\(PIPELINE\)/,'').trim();
+      document.getElementById('ylabel').value = clean || 'y';
+      updateLabelPreview('ylabel','prev-ylabel');
+    }
+  }
+  document.getElementById('xlabel').value = 'Pipeline Length [m]';
+  updateLabelPreview('xlabel','prev-xlabel');
+}
+
+function detectYSeries(headerRow, maxCols) {
+  const xIdx = parseInt(document.getElementById('col-x').value) || 0;
+  const container = document.getElementById('y-series-list');
+  container.innerHTML = '';
+
+  // Detect paired structure: assume column pairs (xCol, yCol, xCol, yCol, ...)
+  // Find all columns that look like y-data (non-length) by scanning headers
+  const yCols = [];
+  for (let i = 0; i < maxCols; i++) {
+    if (i === xIdx) continue;
+    const hdr = headerRow ? String(headerRow[i] || '') : '';
+    if (/length/i.test(hdr)) continue; // another x column — skip
+    // Check if column has numeric data
+    const hasData = _rawData.slice(1).some(r => isFinite(parseFloat(String(r[i]||''))));
+    if (!hasData && hdr === '') continue;
+    // Extract a nice label from the header
+    let label = hdr || `Col ${i+1}`;
+    // Extract case name from header like "PT [bara] (PIPELINE) "C1-0.2032.ppl""
+    const caseMatch = label.match(/"([^"]+)\.ppl"/);
+    if (caseMatch) label = caseMatch[1];
+    yCols.push({ colIdx: i, label, checked: true });
+  }
+
+  // Find paired x columns (repeating x pattern — every 2nd column is x)
+  // Rebuild: detect which x column each y column is paired with
+  // For the pipeline format: cols go [x0,y0,x1,y1,...] — x cols have "length" header
+  const pairedXCols = [];
+  for (let i = 0; i < maxCols; i++) {
+    const hdr = headerRow ? String(headerRow[i] || '') : '';
+    if (/length/i.test(hdr) || (hdr === '' && i % 2 === 0)) pairedXCols.push(i);
+  }
+
+  yCols.forEach((yc, i) => {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:5px;margin-bottom:3px;';
+    div.innerHTML = `
+      <input type="checkbox" id="yc-${i}" value="${yc.colIdx}" checked
+             style="accent-color:var(--accent);cursor:pointer;flex-shrink:0;">
+      <label for="yc-${i}" style="font-family:var(--mono);font-size:.60rem;color:var(--ink);
+             text-transform:none;letter-spacing:0;margin:0;cursor:pointer;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap;" title="${yc.label}">${yc.label}</label>`;
+    container.appendChild(div);
+  });
+
+  if (!yCols.length) {
+    container.innerHTML = '<div style="font-family:var(--mono);font-size:.65rem;color:var(--muted);">No series detected</div>';
+  }
+}
+
+function populateColSel(id, headerRow, maxCols, defaultIdx) {
+  const sel = document.getElementById(id);
+  const prev = sel.value;
+  sel.innerHTML = '';
+  for (let i = 0; i < maxCols; i++) {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = headerRow && headerRow[i]
+      ? `${colLetter(i)}: ${String(headerRow[i]).slice(0,20)}`
+      : `Col ${colLetter(i)}`;
+    sel.appendChild(o);
+  }
+  sel.value = prev !== '' && parseInt(prev) < maxCols ? prev : defaultIdx;
+}
+
+function colLetter(i) {
+  let s = '', n = i + 1;
+  while (n > 0) { const r = (n-1)%26; s = String.fromCharCode(65+r)+s; n = Math.floor((n-1)/26); }
+  return s;
+}
+
+function applyImport() {
+  const hasHeader = document.getElementById('has-header').value === '1';
+  const xIdx      = parseInt(document.getElementById('col-x').value);
+  const startRow  = hasHeader ? 1 : 0;
+
+  // Collect checked y-series
+  const checked = [...document.querySelectorAll('#y-series-list input[type="checkbox"]:checked')];
+  if (!checked.length) {
+    document.getElementById('import-status').className = 'status-line err';
+    document.getElementById('import-status').textContent = '✗ No series selected';
+    return;
+  }
+
+  // Build series — detect paired x columns for each y
+  const headerRow = hasHeader ? _rawData[0] : null;
+  const maxCols = Math.max(..._rawData.map(r => r.length));
+
+  // Find all x-type column indices (headers containing "length" or positional)
+  const xColMap = {}; // yColIdx -> xColIdx
+  for (let i = 0; i < maxCols; i++) {
+    const hdr = headerRow ? String(headerRow[i] || '') : '';
+    if (/length/i.test(hdr)) {
+      // This x col is paired with the next non-x col
+      for (let j = i+1; j < maxCols; j++) {
+        const h2 = headerRow ? String(headerRow[j] || '') : '';
+        if (!/length/i.test(h2)) { xColMap[j] = i; break; }
+      }
+    }
+  }
+
+  // Detect if this is a flow-regime sheet (integer-valued y)
+  let allIntegers = true;
+
+  seriesData = [];
+  checked.forEach((cb, ci) => {
+    const yIdx = parseInt(cb.value);
+    const pairedXIdx = xColMap[yIdx] !== undefined ? xColMap[yIdx] : xIdx;
+    const pts = [];
+    for (let ri = startRow; ri < _rawData.length; ri++) {
+      const r = _rawData[ri];
+      const x = parseFloat(String(r[pairedXIdx] ?? '').replace(/,/g,'.'));
+      const y = parseFloat(String(r[yIdx] ?? '').replace(/,/g,'.'));
+      if (isFinite(x) && isFinite(y)) {
+        pts.push({ x, y });
+        if (!Number.isInteger(y)) allIntegers = false;
+      }
+    }
+    if (!pts.length) return;
+
+    // Get label
+    let label = cb.parentElement.querySelector('label').title || `Series ${ci+1}`;
+
+    seriesData.push({
+      label,
+      color: SERIES_COLORS[ci % SERIES_COLORS.length],
+      markerShape: MARKER_SHAPES[ci % MARKER_SHAPES.length],
+      points: pts,
+      visible: true,
+      isRegime: false,
+    });
+  });
+
+  // Mark as flow regime if all values are small integers
+  isFlowRegime = allIntegers && seriesData.every(s => s.points.every(p => p.y >= 1 && p.y <= 10));
+  if (isFlowRegime) seriesData.forEach(s => s.isRegime = true);
+  document.getElementById('flow-regime-panel').style.display = isFlowRegime ? '' : 'none';
+
+  const total = seriesData.reduce((a,s)=>a+s.points.length, 0);
+  document.getElementById('import-status').className = 'status-line';
+  document.getElementById('import-status').textContent = `✓ ${seriesData.length} series, ${total} points loaded`;
+
+  renderSeriesPanel();
+  renderRegimeLegend();
+  rebuildAnnSeriesPicker();
+  drawChart();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SERIES PANEL
+═══════════════════════════════════════════════════════════ */
+function renderSeriesPanel() {
+  const el = document.getElementById('series-panel');
+  el.innerHTML = '';
+  seriesData.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'series-item' + (s.visible ? '' : ' hidden-series');
+    div.style.flexWrap = 'wrap';
+    div.innerHTML = `
+      <span class="series-swatch" style="background:${s.color};flex-shrink:0;"></span>
+      <input type="text" value="${s.label.replace(/"/g,'&quot;')}"
+             title="Click to rename"
+             style="flex:1;min-width:0;font-family:var(--mono);font-size:.62rem;
+                    border:1px solid transparent;background:transparent;color:var(--ink);
+                    padding:2px 4px;border-radius:2px;outline:none;cursor:text;
+                    transition:border-color .15s,background .15s;"
+             onfocus="this.style.borderColor='var(--blue)';this.style.background='var(--bg)'"
+             onblur="this.style.borderColor='transparent';this.style.background='transparent';renameSeries(${i},this.value)"
+             onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value=seriesData[${i}].label;this.blur();}">
+      <button class="series-toggle ${s.visible?'active':''}" onclick="toggleSeries(${i})">${s.visible?'On':'Off'}</button>`;
+    el.appendChild(div);
+  });
+  if (!seriesData.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:.65rem;color:var(--muted);padding:4px 0;">Import data to see series</div>';
+  }
+}
+
+function renameSeries(i, newLabel) {
+  const trimmed = newLabel.trim();
+  if (!trimmed || trimmed === seriesData[i].label) return;
+  seriesData[i].label = trimmed;
+  // Update annotation series picker to reflect new name
+  rebuildAnnSeriesPicker();
+  drawChart();
+}
+
+function toggleSeries(i) {
+  seriesData[i].visible = !seriesData[i].visible;
+  renderSeriesPanel();
+  drawChart();
+}
+
+function setAllSeries(visible) {
+  seriesData.forEach(s => s.visible = visible);
+  renderSeriesPanel();
+  drawChart();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FLOW REGIME
+═══════════════════════════════════════════════════════════ */
+function renderRegimeLegend() {
+  if (!isFlowRegime) return;
+  const el = document.getElementById('regime-legend');
+  const codes = new Set();
+  seriesData.forEach(s => s.points.forEach(p => codes.add(Math.round(p.y))));
+  el.innerHTML = '';
+  codes.forEach(code => {
+    const r = FLOW_REGIMES[code] || { label:`Code ${code}`, color:'rgba(100,100,100,0.1)', border:'#888' };
+    const chip = document.createElement('div');
+    chip.className = 'regime-chip';
+    chip.style.cssText = `background:${r.color};border-color:${r.border};color:${r.border.replace('0.5','1')};`;
+    chip.textContent = `${code}: ${r.label}`;
+    el.appendChild(chip);
+  });
+}
+
+function setShowRegime(v) {
+  showRegime = v;
+  document.getElementById('btn-regime-on').className  = 'toggle-btn ' + ( v ? 'on':'off');
+  document.getElementById('btn-regime-off').className = 'toggle-btn ' + (!v ? 'on':'off');
+  drawChart();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CONTROLS
+═══════════════════════════════════════════════════════════ */
+function toggleSpline() {
+  showSpline = !showSpline;
+  const b = document.getElementById('tog-spline');
+  b.textContent = showSpline ? 'Show' : 'Hide';
+  b.className = 'toggle-btn ' + (showSpline ? 'on' : 'off');
+  drawChart();
+}
+function setShowSpline(v) {
+  showSpline = v;
+  document.getElementById('tog-spline').textContent = v ? 'Show' : 'Hide';
+  document.getElementById('tog-spline').className = 'toggle-btn ' + (v ? 'on' : 'off');
+  document.getElementById('btn-spline-on').className  = 'toggle-btn ' + ( v ? 'on':'off');
+  document.getElementById('btn-spline-off').className = 'toggle-btn ' + (!v ? 'on':'off');
+  drawChart();
+}
+function setSplineStyle(s) {
+  splineStyle = s;
+  document.getElementById('btn-sp-solid').className  = 'toggle-btn ' + (s==='solid'  ? 'on':'off');
+  document.getElementById('btn-sp-dashed').className = 'toggle-btn ' + (s==='dashed' ? 'on':'off');
+  drawChart();
+}
+function setMarkerMode(mode) {
+  markerMode = mode;
+  document.getElementById('btn-mk-all').className  = 'toggle-btn ' + (mode==='all'  ? 'on':'off');
+  document.getElementById('btn-mk-nth').className  = 'toggle-btn ' + (mode==='nth'  ? 'on':'off');
+  document.getElementById('btn-mk-none').className = 'toggle-btn ' + (mode==='none' ? 'on':'off');
+  document.getElementById('marker-nth-row').style.display = mode==='nth' ? '' : 'none';
+  drawChart();
+}
+function setMarkerNth(n) {
+  markerNth = n;
+  document.getElementById('marker-nth-label').textContent = n;
+  drawChart();
+}
+function setAnnDir(dir) {
+  annDir = dir;
+  ['ul','ur','dl','dr'].forEach(d => {
+    const map = {'ul':'up-left','ur':'up-right','dl':'down-left','dr':'down-right'};
+    document.getElementById(`btn-ann-${d}`).className = 'toggle-btn ' + (map[d]===dir ? 'on':'off');
+  });
+}
+// Helper: should we draw a marker for point index i in this series?
+function showMarkerAt(i, totalPts) {
+  if (markerMode === 'none') return false;
+  if (markerMode === 'all')  return true;
+  // 'nth': always show first and last, then every Nth
+  return i === 0 || i === totalPts - 1 || i % markerNth === 0;
+}
+// Line weight: thicker when no markers so lines read clearly
+function lineWeight() {
+  return markerMode === 'none' ? 4.0 : 3.5;
+}
+function setLegPos(pos) {
+  legendPos = pos;
+  document.querySelectorAll('#leg-grid .leg-cell[data-pos]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pos === pos);
+  });
+  const hb = document.getElementById('btn-leg-hide');
+  hb.style.background  = pos==='hidden' ? 'var(--ink)' : '';
+  hb.style.color        = pos==='hidden' ? 'var(--bg)'  : '';
+  hb.style.borderColor  = pos==='hidden' ? 'var(--ink)' : '';
+  drawChart();
+}
+
+/* Reference lines */
+function addRefLine() {
+  const axis  = document.getElementById('line-axis').value;
+  const val   = parseFloat(document.getElementById('line-val').value);
+  const lbl   = document.getElementById('line-label').value.trim();
+  const side  = document.getElementById('line-label-side').value;
+  const pos   = document.getElementById('line-label-pos').value;
+  if (!isFinite(val)) return;
+  refLines.push({ axis, val, color: REF_COLORS[refLines.length % REF_COLORS.length], label: lbl, side, pos, legendHidden: false });
+  document.getElementById('line-val').value   = '';
+  document.getElementById('line-label').value = '';
+  renderRefList();
+  drawChart();
+}
+function removeRefLine(i) { refLines.splice(i,1); renderRefList(); drawChart(); }
+function toggleRefLegend(i) { refLines[i].legendHidden = !refLines[i].legendHidden; renderRefList(); drawChart(); }
+function setRefLineSide(i, v) { refLines[i].side = v; drawChart(); }
+function setRefLinePos(i, v)  { refLines[i].pos  = v; drawChart(); }
+function renderRefList() {
+  document.getElementById('lines-list').innerHTML = refLines.map((rl,i) => `
+    <div class="ref-item" style="flex-wrap:wrap;gap:4px;align-items:center;">
+      <span class="ref-swatch" style="background:${rl.color}"></span>
+      <span class="ref-label" style="flex:1;min-width:0;">${rl.axis} = ${rl.val}${rl.label ? ' · '+rl.label : ''}</span>
+      <button class="btn-remove" onclick="removeRefLine(${i})">✕</button>
+      <div style="width:100%;display:flex;gap:4px;padding-left:20px;margin-top:2px;flex-wrap:wrap;">
+        ${rl.label ? `
+        <select style="flex:1;font-family:var(--mono);font-size:.6rem;border:1px solid var(--rule);background:var(--bg);color:var(--ink);padding:2px 4px;border-radius:2px;"
+                onchange="setRefLineSide(${i},this.value)">
+          <option value="left"  ${(rl.side||'left') ==='left'  ?'selected':''}>Label left</option>
+          <option value="right" ${(rl.side||'left') ==='right' ?'selected':''}>Label right</option>
+        </select>
+        <select style="flex:1;font-family:var(--mono);font-size:.6rem;border:1px solid var(--rule);background:var(--bg);color:var(--ink);padding:2px 4px;border-radius:2px;"
+                onchange="setRefLinePos(${i},this.value)">
+          <option value="above" ${(rl.pos||'above')==='above' ?'selected':''}>Above line</option>
+          <option value="below" ${(rl.pos||'above')==='below' ?'selected':''}>Below line</option>
+        </select>` : ''}
+        <button class="series-toggle ${rl.legendHidden ? '' : 'active'}"
+                style="font-size:.58rem;padding:2px 6px;"
+                onclick="toggleRefLegend(${i})">${rl.legendHidden ? 'Legend: Off' : 'Legend: On'}</button>
+      </div>
+    </div>`).join('');
+}
+
+/* Annotations */
+function rebuildAnnSeriesPicker() {
+  const sel = document.getElementById('ann-series');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="-1">— None / custom —</option>';
+  seriesData.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = s.label;
+    o.style.color = s.color;
+    sel.appendChild(o);
+  });
+  // Restore previous selection if still valid
+  if (prev !== '-1' && seriesData[parseInt(prev)]) sel.value = prev;
+}
+
+function addAnnotation() {
+  const x   = parseFloat(document.getElementById('ann-x').value);
+  const y   = parseFloat(document.getElementById('ann-y').value);
+  const txt = document.getElementById('ann-text').value.trim();
+  if (!isFinite(x) || !isFinite(y) || !txt) return;
+  // Derive colour from selected series, or fall back to first SERIES_COLOR
+  const si    = parseInt(document.getElementById('ann-series').value);
+  const color = (si >= 0 && seriesData[si]) ? seriesData[si].color : SERIES_COLORS[0];
+  annotations.push({ x, y, text: txt, color, dir: annDir });
+  document.getElementById('ann-x').value = '';
+  document.getElementById('ann-y').value = '';
+  document.getElementById('ann-text').value = '';
+  renderAnnList();
+  drawChart();
+}
+function removeAnnotation(i) { annotations.splice(i,1); renderAnnList(); drawChart(); }
+function setAnnItemDir(i, v) { annotations[i].dir = v; renderAnnList(); drawChart(); }
+function renderAnnList() {
+  const dirMap = {'up-left':'↖','up-right':'↗','down-left':'↙','down-right':'↘'};
+  const dirs   = ['up-left','up-right','down-left','down-right'];
+  document.getElementById('ann-list').innerHTML = annotations.map((a,i) => `
+    <div class="ann-item" style="flex-wrap:wrap;gap:4px;align-items:center;">
+      <span class="ann-dot" style="background:${a.color}"></span>
+      <span class="ann-label" style="flex:1;min-width:0;" title="${a.text}">${a.text} @ (${a.x}, ${a.y})</span>
+      <button class="btn-remove" onclick="removeAnnotation(${i})">✕</button>
+      <div style="width:100%;display:flex;gap:3px;padding-left:20px;margin-top:2px;">
+        ${dirs.map(d=>`
+          <button onclick="setAnnItemDir(${i},'${d}')"
+                  style="flex:1;font-size:.75rem;padding:2px 0;border-radius:2px;cursor:pointer;
+                         border:1px solid var(--rule);
+                         background:${(a.dir||'up-right')===d?a.color:'var(--bg)'};
+                         color:${(a.dir||'up-right')===d?'#fff':'var(--ink)'};
+                         transition:background .1s;">${dirMap[d]}</button>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CATMULL-ROM SPLINE
+═══════════════════════════════════════════════════════════ */
+function drawCatmullRom(c, points, scx, scy, tension) {
+  if (points.length < 2) return;
+  const pts = [...points].sort((a,b) => a.x - b.x);
+  const t = tension ?? 0.5;
+  c.beginPath();
+  c.moveTo(scx(pts[0].x), scy(pts[0].y));
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i-1,0)], p1 = pts[i];
+    const p2 = pts[i+1], p3 = pts[Math.min(i+2, pts.length-1)];
+    const cp1x = scx(p1.x) + (scx(p2.x)-scx(p0.x))*t/3;
+    const cp1y = scy(p1.y) + (scy(p2.y)-scy(p0.y))*t/3;
+    const cp2x = scx(p2.x) - (scx(p3.x)-scx(p1.x))*t/3;
+    const cp2y = scy(p2.y) - (scy(p3.y)-scy(p1.y))*t/3;
+    c.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, scx(p2.x), scy(p2.y));
+  }
+  c.stroke();
+}
+
+function catmullRomSVGPath(points, scx, scy, tension) {
+  if (points.length < 2) return '';
+  const pts = [...points].sort((a,b) => a.x - b.x);
+  const t = tension ?? 0.5;
+  const f = n => parseFloat(n.toFixed(2));
+  let d = `M ${f(scx(pts[0].x))} ${f(scy(pts[0].y))}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0=pts[Math.max(i-1,0)], p1=pts[i], p2=pts[i+1], p3=pts[Math.min(i+2,pts.length-1)];
+    const cp1x=f(scx(p1.x)+(scx(p2.x)-scx(p0.x))*t/3);
+    const cp1y=f(scy(p1.y)+(scy(p2.y)-scy(p0.y))*t/3);
+    const cp2x=f(scx(p2.x)-(scx(p3.x)-scx(p1.x))*t/3);
+    const cp2y=f(scy(p2.y)-(scy(p3.y)-scy(p1.y))*t/3);
+    d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${f(scx(p2.x))} ${f(scy(p2.y))}`;
+  }
+  return d;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AXIS SCALING
+═══════════════════════════════════════════════════════════ */
+function niceAxis(dataMin, dataMax) {
+  if (dataMin === dataMax) { dataMin -= 1; dataMax += 1; }
+  const range  = dataMax - dataMin;
+  const rawStep = range / 6;
+  const mag    = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm   = rawStep / mag;
+  let step;
+  if      (norm <= 1.5) step = 1*mag;
+  else if (norm <= 3)   step = 2*mag;
+  else if (norm <= 7)   step = 5*mag;
+  else                  step = 10*mag;
+  const axMin = Math.floor(dataMin/step)*step;
+  const axMax = Math.ceil(dataMax/step)*step;
+  const ticks = [];
+  for (let t = axMin; t <= axMax+step*0.001; t += step) ticks.push(parseFloat(t.toPrecision(12)));
+  return { min:ticks[0], max:ticks[ticks.length-1], step, ticks };
+}
+
+function fmtTick(v) {
+  if (Math.abs(v) >= 1e5 || (v !== 0 && Math.abs(v) < 0.001)) return v.toExponential(2);
+  return parseFloat(v.toPrecision(8)).toString();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DRAW CHART
+═══════════════════════════════════════════════════════════ */
+const canvas = document.getElementById('myCanvas');
+const ctx2d  = canvas.getContext('2d');
+
+function drawChart() {
+  const container = document.querySelector('.chart-wrap');
+  const CW = Math.min(container.clientWidth - 32, 960);
+  const CH = Math.round(CW * 0.60);
+  canvas.width  = CW; canvas.height = CH;
+  canvas.style.width = CW+'px'; canvas.style.height = CH+'px';
+  _render(ctx2d, CW, CH);
+  updateAxisRangePlaceholders();
+}
+
+function getAxisExtents() {
+  const visible = seriesData.filter(s => s.visible);
+  let xVals = [], yVals = [];
+  visible.forEach(s => { s.points.forEach(p => { xVals.push(p.x); yVals.push(p.y); }); });
+  refLines.forEach(rl => { if(rl.axis==='x') xVals.push(rl.val); else yVals.push(rl.val); });
+  annotations.forEach(a => { xVals.push(a.x); yVals.push(a.y); });
+  if (!xVals.length) { xVals=[0,6000]; yVals=[0,150]; }
+
+  const xDataMin = Math.min(...xVals), xDataMax = Math.max(...xVals);
+  const yDataMin = Math.min(...yVals), yDataMax = Math.max(...yVals);
+
+  const xMin = axisRanges.xMin !== null ? axisRanges.xMin : xDataMin;
+  const xMax = axisRanges.xMax !== null ? axisRanges.xMax : xDataMax;
+  const yMin = axisRanges.yMin !== null ? axisRanges.yMin : yDataMin;
+  const yMax = axisRanges.yMax !== null ? axisRanges.yMax : yDataMax;
+
+  const xAxis = niceAxis(xMin, xMax);
+  const yAxis = niceAxis(yMin, yMax);
+
+  if (axisRanges.xMin !== null) xAxis.min = axisRanges.xMin;
+  if (axisRanges.xMax !== null) xAxis.max = axisRanges.xMax;
+  if (axisRanges.yMin !== null) yAxis.min = axisRanges.yMin;
+  if (axisRanges.yMax !== null) yAxis.max = axisRanges.yMax;
+
+  return { xAxis, yAxis };
+}
+
+function _render(c, CW, CH) {
+  const PAD = { top:55, right:32, bottom:84, left:92 };
+  const PW  = CW - PAD.left - PAD.right;
+  const PH  = CH - PAD.top  - PAD.bottom;
+
+  const { xAxis, yAxis } = getAxisExtents();
+  const scx = v => PAD.left + (v-xAxis.min)/(xAxis.max-xAxis.min)*PW;
+  const scy = v => PAD.top  + PH - (v-yAxis.min)/(yAxis.max-yAxis.min)*PH;
+
+  // Clear
+  c.clearRect(0, 0, CW, CH);
+  c.fillStyle = '#ffffff'; c.fillRect(0, 0, CW, CH);
+
+
+  c.save();
+  c.beginPath(); c.rect(PAD.left, PAD.top, PW, PH); c.clip();
+
+  // Gridlines removed for academic style
+
+  // ── Flow regime banding ──
+  if (isFlowRegime && showRegime && seriesData.length > 0) {
+    // Use the first visible series to colour-band regions
+    const refSeries = seriesData.find(s => s.visible && s.isRegime);
+    if (refSeries) {
+      const sorted = [...refSeries.points].sort((a,b) => a.x - b.x);
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const code = Math.round(sorted[i].y);
+        const r = FLOW_REGIMES[code] || { color: 'rgba(150,150,150,0.08)' };
+        const x1 = scx(sorted[i].x), x2 = scx(sorted[i+1].x);
+        c.fillStyle = r.color;
+        c.fillRect(x1, PAD.top, x2-x1, PH);
+      }
+    }
+  }
+
+  // ── Reference lines ──
+  refLines.forEach(rl => {
+    c.save();
+    c.strokeStyle=rl.color; c.lineWidth=1.5; c.setLineDash([5,4]);
+    c.beginPath();
+    if (rl.axis==='x') { c.moveTo(scx(rl.val),PAD.top); c.lineTo(scx(rl.val),PAD.top+PH); }
+    else               { c.moveTo(PAD.left,scy(rl.val)); c.lineTo(PAD.left+PW,scy(rl.val)); }
+    c.stroke(); c.restore();
+    // Label ref line — respect side (left/right) and pos (above/below)
+    if (rl.label) {
+      c.save();
+      c.font = '14px "Helvetica Neue",Helvetica,Arial,sans-serif';
+      c.fillStyle = rl.color;
+      const side = rl.side || 'left';
+      const pos  = rl.pos  || 'above';
+      if (rl.axis === 'x') {
+        // Vertical line: label floats left/right of line, above/below midpoint
+        const lx = side === 'right' ? scx(rl.val)+4 : scx(rl.val)-4;
+        const ly = pos  === 'above' ? PAD.top + PH*0.25 : PAD.top + PH*0.75;
+        c.textAlign = side === 'right' ? 'left' : 'right';
+        c.textBaseline = 'middle';
+        c.fillText(rl.label, lx, ly);
+      } else {
+        // Horizontal line: label at left/right end, above/below line
+        const lx = side === 'right' ? PAD.left + PW - 4 : PAD.left + 4;
+        const ly = pos  === 'above' ? scy(rl.val) - 4   : scy(rl.val) + 13;
+        c.textAlign    = side === 'right' ? 'right' : 'left';
+        c.textBaseline = 'alphabetic';
+        c.fillText(rl.label, lx, ly);
+      }
+      c.restore();
+    }
+  });
+
+  // ── Series: lines then conditional markers ──
+  const visibleSeries = seriesData.filter(s => s.visible);
+
+  // Spline curves
+  if (showSpline && !isFlowRegime) {
+    visibleSeries.forEach(s => {
+      if (s.points.length < 2) return;
+      c.save();
+      c.strokeStyle = s.color;
+      c.lineWidth   = lineWeight();
+      if (splineStyle==='dashed') c.setLineDash([7,4]);
+      drawCatmullRom(c, s.points, scx, scy, 0.5);
+      c.restore();
+    });
+  }
+
+  // For flow regime: draw step lines
+  if (isFlowRegime) {
+    visibleSeries.forEach(s => {
+      if (s.points.length < 2) return;
+      const sorted = [...s.points].sort((a,b)=>a.x-b.x);
+      c.save();
+      c.strokeStyle = s.color; c.lineWidth = lineWeight();
+      c.beginPath();
+      c.moveTo(scx(sorted[0].x), scy(sorted[0].y));
+      for (let i = 1; i < sorted.length; i++) {
+        c.lineTo(scx(sorted[i].x), scy(sorted[i].y));
+      }
+      c.stroke(); c.restore();
+    });
+  }
+
+  // Markers — drawn on top of lines, respecting markerMode
+  if (markerMode !== 'none' && !isFlowRegime) {
+    visibleSeries.forEach(s => {
+      const sorted = [...s.points].sort((a,b) => a.x - b.x);
+      const shape  = s.markerShape || 'circle';
+      sorted.forEach((d, i) => {
+        if (!showMarkerAt(i, sorted.length)) return;
+        drawMarker(c, shape, scx(d.x), scy(d.y), 5.0, s.color);
+      });
+    });
+  }
+
+  // ── Annotations ──
+  annotations.forEach(a => {
+    const px=scx(a.x), py=scy(a.y);
+    const dir = a.dir || 'up-right';
+    const dx = dir.includes('right') ? 1 : -1;
+    const dy = dir.includes('up')    ? -1 : 1;
+    const lx = px + dx*18, ly = py + dy*18;
+    // Dot
+    c.save();
+    c.fillStyle=a.color; c.strokeStyle=shadeColor(a.color,-40); c.lineWidth=1.5;
+    c.beginPath(); c.arc(px, py, 6, 0, Math.PI*2); c.fill(); c.stroke();
+    // Leader
+    c.strokeStyle=a.color; c.lineWidth=1; c.setLineDash([3,2]);
+    c.beginPath(); c.moveTo(px,py); c.lineTo(lx,ly); c.stroke();
+    c.setLineDash([]);
+    // Label box
+    c.font='14px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    const tw = c.measureText(a.text).width;
+    const bx = dx === 1 ? lx : lx - tw - 10;
+    const by = dy === -1 ? ly - 17 : ly - 3;
+    c.fillStyle='rgba(253,252,250,0.92)'; c.strokeStyle='#c8bfb0'; c.lineWidth=1;
+    c.beginPath(); c.rect(bx, by, tw+10, 20); c.fill(); c.stroke();
+    c.fillStyle=a.color; c.textAlign='left'; c.textBaseline='bottom';
+    c.fillText(a.text, bx+5, by+18);
+    c.restore();
+  });
+
+  c.restore(); // end clip
+
+  // ── Plot border ──
+  c.strokeStyle='#1a1a1a'; c.lineWidth=1.4;
+  c.strokeRect(PAD.left, PAD.top, PW, PH);
+
+  // ── Y axis ──
+  c.textAlign='right'; c.textBaseline='middle';
+  yAxis.ticks.forEach(t => {
+    const y=scy(t);
+    c.strokeStyle='#1a1a1a'; c.lineWidth=1.2;
+    c.beginPath(); c.moveTo(PAD.left,y); c.lineTo(PAD.left+6,y); c.stroke();
+    c.fillStyle='#1a1a1a'; c.font='18px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.fillText(fmtTick(t), PAD.left-6, y);
+  });
+
+  // ── X axis ──
+  c.textAlign='center'; c.textBaseline='top';
+  xAxis.ticks.forEach(t => {
+    const x=scx(t);
+    c.strokeStyle='#1a1a1a'; c.lineWidth=1.2;
+    c.beginPath(); c.moveTo(x,PAD.top+PH); c.lineTo(x,PAD.top+PH-6); c.stroke();
+    c.fillStyle='#1a1a1a'; c.font='18px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.fillText(fmtTick(t), x, PAD.top+PH+4);
+  });
+
+  // ── Axis labels ──
+  const xlabel = document.getElementById('xlabel').value || 'x';
+  const ylabel = document.getElementById('ylabel').value || 'y';
+  const chartTitle = document.getElementById('chart-title').value || 'Pipeline Profile';
+
+  mCanvas(c, xlabel, PAD.left+PW/2, CH-18, 24, '#1a1a1a', 'center', 'bottom');
+  c.save();
+  c.translate(28, PAD.top+PH/2); c.rotate(-Math.PI/2);
+  mCanvas(c, ylabel, 0, 0, 24, '#1a1a1a', 'center', 'top');
+  c.restore();
+  mCanvas(c, chartTitle, CW/2, 12, 24, '#1a1a1a', 'center', 'top');
+
+  // ── Legend ──
+  drawLegend(c, PAD, PW, PH);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LEGEND
+═══════════════════════════════════════════════════════════ */
+function legXY(pos, PAD, PW, PH, legW, legH) {
+  const m=12, cx=PAD.left, cy=PAD.top;
+  const p = {
+    'top-left':   { x:cx+m,             y:cy+m },
+    'top-center': { x:cx+PW/2-legW/2,   y:cy+m },
+    'top-right':  { x:cx+PW-legW-m,     y:cy+m },
+    'mid-left':   { x:cx+m,             y:cy+PH/2-legH/2 },
+    'mid-right':  { x:cx+PW-legW-m,     y:cy+PH/2-legH/2 },
+    'bot-left':   { x:cx+m,             y:cy+PH-legH-m },
+    'bot-center': { x:cx+PW/2-legW/2,   y:cy+PH-legH-m },
+    'bot-right':  { x:cx+PW-legW-m,     y:cy+PH-legH-m },
+  };
+  return p[pos] || p['bot-right'];
+}
+
+function drawLegend(c, PAD, PW, PH) {
+  if (legendPos === 'hidden') return;
+  const visItems = seriesData.filter(s=>s.visible);
+  const refItems = refLines.filter(rl=>!rl.legendHidden);
+  if (!visItems.length && !refItems.length) return;
+
+  const legPad=11, legLineH=28, legIconW=34;
+  // Measure max label width
+  c.font='16px "Helvetica Neue",Helvetica,Arial,sans-serif';  // measure pass — swapped below
+  let maxLabelW = 0;
+  visItems.forEach(s => { maxLabelW = Math.max(maxLabelW, c.measureText(s.label).width); });
+  refItems.forEach(r => { const lbl = r.label || `${r.axis}=${r.val}`; maxLabelW = Math.max(maxLabelW, c.measureText(lbl).width); });
+
+  const legW = Math.min(legIconW + maxLabelW + legPad*2 + 4, 280);
+  const legH = (visItems.length + refItems.length) * legLineH + legPad*2;
+  const { x:legX, y:legY } = legXY(legendPos, PAD, PW, PH, legW, legH);
+
+  c.fillStyle='#ffffff';
+  c.strokeStyle='#bbbbbb'; c.lineWidth=1;
+  c.beginPath(); c.rect(legX, legY, legW, legH); c.fill(); c.stroke();
+
+  let row = 0;
+  visItems.forEach(s => {
+    const iy = legY+legPad+row*legLineH+legLineH/2;
+    const ix = legX+legPad;
+    // Line swatch — longer and heavier for legibility at print size
+    c.save(); c.strokeStyle=s.color; c.lineWidth=markerMode==='none' ? 3.0 : 2.2;
+    c.beginPath(); c.moveTo(ix, iy); c.lineTo(ix+24, iy); c.stroke(); c.restore();
+    // Dot — only when markers are shown
+    if (markerMode !== 'none') {
+      drawMarker(c, s.markerShape || 'circle', ix+12, iy, 4.5, s.color);
+    }
+    // Label
+    c.fillStyle='#1a1a1a'; c.font='16px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.textAlign='left'; c.textBaseline='middle';
+    const lbl = s.label.length > 22 ? s.label.slice(0,20)+'…' : s.label;
+    c.fillText(lbl, ix+legIconW, iy);
+    row++;
+  });
+
+  refItems.forEach(rl => {
+    const iy = legY+legPad+row*legLineH+legLineH/2;
+    const ix = legX+legPad;
+    c.save(); c.strokeStyle=rl.color; c.lineWidth=1.5; c.setLineDash([5,3]);
+    c.beginPath(); c.moveTo(ix,iy); c.lineTo(ix+18,iy); c.stroke(); c.restore();
+    c.fillStyle='#1a1a1a'; c.font='16px "Helvetica Neue",Helvetica,Arial,sans-serif';
+    c.textAlign='left'; c.textBaseline='middle';
+    const lbl = (rl.label || `${rl.axis}=${rl.val}`);
+    c.fillText(lbl.length > 22 ? lbl.slice(0,20)+'…' : lbl, ix+legIconW, iy);
+    row++;
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COLOUR UTILITY
+═══════════════════════════════════════════════════════════ */
+function shadeColor(hex, amt) {
+  // Lighten/darken a hex colour by amt (negative = darker)
+  hex = hex.replace('#','');
+  if (hex.length === 3) hex = hex.split('').map(x=>x+x).join('');
+  if (hex.startsWith('rgba') || hex.startsWith('rgb')) return hex; // skip rgba
+  const num = parseInt(hex, 16);
+  const r = Math.min(255, Math.max(0, (num>>16)+amt));
+  const g = Math.min(255, Math.max(0, ((num>>8)&0xff)+amt));
+  const b = Math.min(255, Math.max(0, (num&0xff)+amt));
+  return `#${((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1)}`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SVG EXPORT
+═══════════════════════════════════════════════════════════ */
+function escSVG(s) {
+  return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function exportSVG() {
+  const W=960, H=576;
+  const PAD={top:55,right:32,bottom:84,left:92};
+  const PW=W-PAD.left-PAD.right, PH=H-PAD.top-PAD.bottom;
+  const {xAxis,yAxis}=getAxisExtents();
+  const scx=v=>PAD.left+(v-xAxis.min)/(xAxis.max-xAxis.min)*PW;
+  const scy=v=>PAD.top+PH-(v-yAxis.min)/(yAxis.max-yAxis.min)*PH;
+  const f=n=>parseFloat(n.toFixed(2));
+  const serif="'Helvetica Neue',Helvetica,Arial,sans-serif";
+  const mono="'Helvetica Neue',Helvetica,Arial,sans-serif";
+
+  const p=[];
+  p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  p.push(`<defs><clipPath id="plot"><rect x="${PAD.left}" y="${PAD.top}" width="${PW}" height="${PH}"/></clipPath></defs>`);
+  p.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+
+  // Flow regime bands
+  if (isFlowRegime && showRegime) {
+    const refSeries = seriesData.find(s=>s.visible&&s.isRegime);
+    if (refSeries) {
+      const sorted=[...refSeries.points].sort((a,b)=>a.x-b.x);
+      for (let i=0;i<sorted.length-1;i++) {
+        const code=Math.round(sorted[i].y);
+        const r=FLOW_REGIMES[code]||{color:'rgba(150,150,150,0.08)'};
+        const x1=f(scx(sorted[i].x)),x2=f(scx(sorted[i+1].x));
+        p.push(`<rect clip-path="url(#plot)" x="${x1}" y="${PAD.top}" width="${x2-x1}" height="${PH}" fill="${r.color}"/>`);
+      }
+    }
+  }
+
+  // Reference lines
+  refLines.forEach(rl=>{
+    const da='stroke-dasharray="5,4"';
+    if (rl.axis==='x') p.push(`<line clip-path="url(#plot)" x1="${f(scx(rl.val))}" y1="${PAD.top}" x2="${f(scx(rl.val))}" y2="${PAD.top+PH}" stroke="${rl.color}" stroke-width="1.5" ${da}/>`);
+    else               p.push(`<line clip-path="url(#plot)" x1="${PAD.left}" y1="${f(scy(rl.val))}" x2="${PAD.left+PW}" y2="${f(scy(rl.val))}" stroke="${rl.color}" stroke-width="1.5" ${da}/>`);
+    if (rl.label) {
+      const side = rl.side || 'left';
+      const pos  = rl.pos  || 'above';
+      if (rl.axis === 'x') {
+        const lx  = side === 'right' ? f(scx(rl.val))+4  : f(scx(rl.val))-4;
+        const ly  = pos  === 'above' ? PAD.top + PH*0.25  : PAD.top + PH*0.75;
+        const anc = side === 'right' ? 'start' : 'end';
+        p.push(`<text clip-path="url(#plot)" x="${lx}" y="${ly}" font-family="${serif}" font-size="14" text-anchor="${anc}" dominant-baseline="middle" fill="${rl.color}">${escSVG(rl.label)}</text>`);
+      } else {
+        const lx  = side === 'right' ? PAD.left+PW-4 : PAD.left+4;
+        const ly  = pos  === 'above' ? f(scy(rl.val))-4  : f(scy(rl.val))+16;
+        const anc = side === 'right' ? 'end' : 'start';
+        p.push(`<text clip-path="url(#plot)" x="${lx}" y="${ly}" font-family="${serif}" font-size="14" text-anchor="${anc}" fill="${rl.color}">${escSVG(rl.label)}</text>`);
+      }
+    }
+  });
+
+  // Splines / lines
+  const vis=seriesData.filter(s=>s.visible);
+  if (showSpline && !isFlowRegime) {
+    vis.forEach(s=>{
+      if (s.points.length<2) return;
+      const sp=catmullRomSVGPath(s.points,scx,scy,0.5);
+      const da=splineStyle==='dashed'?' stroke-dasharray="7,4"':'';
+      const lw=lineWeight();
+      p.push(`<path clip-path="url(#plot)" d="${sp}" fill="none" stroke="${s.color}" stroke-width="${lw}"${da}/>`);
+    });
+  }
+  if (isFlowRegime) {
+    vis.forEach(s=>{
+      if (s.points.length<2) return;
+      const sorted=[...s.points].sort((a,b)=>a.x-b.x);
+      const pts=sorted.map((pt,i)=>`${i===0?'M':'L'} ${f(scx(pt.x))} ${f(scy(pt.y))}`).join(' ');
+      p.push(`<path clip-path="url(#plot)" d="${pts}" fill="none" stroke="${s.color}" stroke-width="${lineWeight()}"/>`);
+    });
+  }
+
+  // Data markers — respecting markerMode
+  if (markerMode !== 'none' && !isFlowRegime) {
+    vis.forEach(s=>{
+      const sorted=[...s.points].sort((a,b)=>a.x-b.x);
+      const shape = s.markerShape || 'circle';
+      sorted.forEach((d,i)=>{
+        if (!showMarkerAt(i, sorted.length)) return;
+        const mx=f(scx(d.x)), my=f(scy(d.y));
+        const m = markerSVGPath(shape, mx, my, 5.0);
+        const darkStroke = shadeColor(s.color, -50);
+        if (m.stroke) {
+          p.push(`<${m.tag} clip-path="url(#plot)" ${m.attrs} stroke="${s.color}" stroke-width="1.5" fill="none"/>`);
+        } else if (m.open) {
+          p.push(`<${m.tag} clip-path="url(#plot)" ${m.attrs} fill="rgba(253,252,250,0.9)" stroke="${s.color}" stroke-width="1.0"/>`);
+        } else {
+          p.push(`<${m.tag} clip-path="url(#plot)" ${m.attrs} fill="${s.color}" stroke="${darkStroke}" stroke-width="1.0"/>`);
+        }
+      });
+    });
+  }
+
+  // Annotations — use a hidden canvas to measure text exactly as the live chart does
+  const _mCanvas = document.createElement('canvas');
+  const _mCtx    = _mCanvas.getContext('2d');
+  _mCtx.font = '14px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  annotations.forEach(a=>{
+    const px=f(scx(a.x)), py=f(scy(a.y));
+    const dir = a.dir || 'up-right';
+    const dx  = dir.includes('right') ? 1 : -1;
+    const dy  = dir.includes('up')    ? -1 : 1;
+    const lx  = px + dx*18, ly = py + dy*18;
+    const tw  = _mCtx.measureText(a.text).width;
+    const bx  = dx === 1 ? lx : lx - tw - 10;
+    const by  = dy === -1 ? ly - 17 : ly - 3;
+    p.push(`<circle clip-path="url(#plot)" cx="${px}" cy="${py}" r="5" fill="${a.color}" stroke="${shadeColor(a.color,-40)}" stroke-width="1.2"/>`);
+    p.push(`<line clip-path="url(#plot)" x1="${px}" y1="${py}" x2="${lx}" y2="${ly}" stroke="${a.color}" stroke-width="1" stroke-dasharray="3,2"/>`);
+    p.push(`<rect clip-path="url(#plot)" x="${bx}" y="${by}" width="${tw+10}" height="20" fill="rgba(253,252,250,0.92)" stroke="#c8bfb0" stroke-width="1"/>`);
+    p.push(`<text clip-path="url(#plot)" x="${bx+5}" y="${by+15}" font-family="${serif}" font-size="14" fill="${a.color}">${escSVG(a.text)}</text>`);
+  });
+
+  // Plot border
+  p.push(`<rect x="${PAD.left}" y="${PAD.top}" width="${PW}" height="${PH}" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>`);
+
+  // Y axis ticks
+  yAxis.ticks.forEach(t=>{
+    const y=f(scy(t));
+    p.push(`<line x1="${PAD.left}" y1="${y}" x2="${PAD.left+6}" y2="${y}" stroke="#1a1a1a" stroke-width="1.2"/>`);
+    p.push(`<text x="${PAD.left-6}" y="${y}" font-family="${mono}" font-size="18" text-anchor="end" dominant-baseline="middle" fill="#1a1a1a">${escSVG(fmtTick(t))}</text>`);
+  });
+
+  // X axis ticks
+  xAxis.ticks.forEach(t=>{
+    const x=f(scx(t));
+    p.push(`<line x1="${x}" y1="${PAD.top+PH}" x2="${x}" y2="${PAD.top+PH-6}" stroke="#1a1a1a" stroke-width="1.2"/>`);
+    p.push(`<text x="${x}" y="${PAD.top+PH+22}" font-family="${mono}" font-size="18" text-anchor="middle" fill="#1a1a1a">${escSVG(fmtTick(t))}</text>`);
+  });
+
+  // Axis labels
+  const xlabel=document.getElementById('xlabel').value||'x';
+  const ylabel=document.getElementById('ylabel').value||'y';
+  const chartTitle=document.getElementById('chart-title').value||'Pipeline Profile';
+  p.push(`<text x="${PAD.left+PW/2}" y="${H-18}" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="24" text-anchor="middle" dominant-baseline="auto" fill="#1a1a1a">${mSVG(xlabel,24)}</text>`);
+  p.push(`<text transform="translate(28,${PAD.top+PH/2}) rotate(-90)" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="24" text-anchor="middle" dominant-baseline="auto" fill="#1a1a1a">${mSVG(ylabel,24)}</text>`);
+  p.push(`<text x="${W/2}" y="32" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="24" text-anchor="middle" fill="#1a1a1a">${mSVG(chartTitle,24)}</text>`);
+
+  // Legend
+  if (legendPos !== 'hidden' && vis.length) {
+    const visRefLines = refLines.filter(rl=>!rl.legendHidden);
+    const legPad=11, legLineH=28, legIconW=34;
+    const allLabels=[...vis.map(s=>s.label),...visRefLines.map(r=>r.label||`${r.axis}=${r.val}`)];
+    const maxW = Math.min(allLabels.reduce((mx,l)=>Math.max(mx,l.length*9),0), 240);
+    const legW = Math.min(legIconW + maxW + legPad*2, 300);
+    const legH = (vis.length + visRefLines.length)*legLineH + legPad*2;
+    const {x:legX,y:legY}=legXY(legendPos,PAD,PW,PH,legW,legH);
+    p.push(`<rect x="${legX}" y="${legY}" width="${legW}" height="${legH}" fill="#ffffff" stroke="#bbbbbb" stroke-width="1"/>`);
+    let row=0;
+    vis.forEach(s=>{
+      const iy=legY+legPad+row*legLineH+legLineH/2;
+      const ix=legX+legPad;
+      p.push(`<line x1="${ix}" y1="${iy}" x2="${ix+24}" y2="${iy}" stroke="${s.color}" stroke-width="${markerMode==='none'?3.0:2.2}"/>`);
+      if (markerMode !== 'none') {
+        const shape = s.markerShape || 'circle';
+        const lm = markerSVGPath(shape, ix+12, iy, 5.0);
+        const darkStroke = shadeColor(s.color, -50);
+        if (lm.stroke) {
+          p.push(`<${lm.tag} ${lm.attrs} stroke="${s.color}" stroke-width="1.5" fill="none"/>`);
+        } else if (lm.open) {
+          p.push(`<${lm.tag} ${lm.attrs} fill="#ffffff" stroke="${s.color}" stroke-width="1.0"/>`);
+        } else {
+          p.push(`<${lm.tag} ${lm.attrs} fill="${s.color}" stroke="${darkStroke}" stroke-width="1.0"/>`);
+        }
+      }
+      const lbl=s.label.length>22?s.label.slice(0,20)+'…':s.label;
+      p.push(`<text x="${ix+legIconW}" y="${iy}" font-family="${serif}" font-size="16" dominant-baseline="middle" fill="#1a1a1a">${escSVG(lbl)}</text>`);
+      row++;
+    });
+    visRefLines.forEach(rl=>{
+      const iy=legY+legPad+row*legLineH+legLineH/2;
+      const ix=legX+legPad;
+      p.push(`<line x1="${ix}" y1="${iy}" x2="${ix+24}" y2="${iy}" stroke="${rl.color}" stroke-width="2.0" stroke-dasharray="5,3"/>`);
+      const lbl=(rl.label||`${rl.axis}=${rl.val}`);
+      p.push(`<text x="${ix+legIconW}" y="${iy}" font-family="${serif}" font-size="16" dominant-baseline="middle" fill="#1a1a1a">${escSVG(lbl.length>22?lbl.slice(0,20)+'…':lbl)}</text>`);
+      row++;
+    });
+  }
+
+  p.push(`</svg>`);
+  const rawName = (document.getElementById('svg-filename').value || 'pipeline_profile').trim();
+  const safeName = rawName.replace(/\.svg$/i, '').replace(/[\\/:*?"<>|]/g, '_') || 'pipeline_profile';
+  const blob=new Blob([p.join('\n')],{type:'image/svg+xml;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`${safeName}.svg`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AXIS RANGES
+═══════════════════════════════════════════════════════════ */
+function resetAxisRanges() {
+  axisRanges = { xMin: null, xMax: null, yMin: null, yMax: null };
+  ['ar-xmin','ar-xmax','ar-ymin','ar-ymax'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; el.style.borderColor = ''; }
+  });
+  drawChart(); // triggers updateAxisRangePlaceholders
+}
+
+// Map input id → axisRanges key
+const _arKeyMap = { 'ar-xmin':'xMin', 'ar-xmax':'xMax', 'ar-ymin':'yMin', 'ar-ymax':'yMax' };
+
+function updateAxisRangePlaceholders() {
+  // Reflect current auto extents as placeholder text on unoverridden fields
+  const {xAxis, yAxis} = getAxisExtents();
+  const fmt = v => parseFloat(v.toPrecision(6)).toString();
+  const autoVals = { xMin: fmt(xAxis.min), xMax: fmt(xAxis.max), yMin: fmt(yAxis.min), yMax: fmt(yAxis.max) };
+  Object.entries(_arKeyMap).forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el && axisRanges[key] === null) el.placeholder = autoVals[key];
+  });
+}
+
+function onAxisRangeInput(id) {
+  const el  = document.getElementById(id);
+  const key = _arKeyMap[id];
+  const val = el.value.trim();
+  axisRanges[key] = (val === '' || isNaN(parseFloat(val))) ? null : parseFloat(val);
+  // Accent border when field is overriding auto; reset when cleared
+  el.style.borderColor = axisRanges[key] !== null ? 'var(--accent)' : '';
+  drawChart(); // triggers updateAxisRangePlaceholders for all other auto fields
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════════ */
+renderSeriesPanel();
+window.addEventListener('resize', drawChart);
+drawChart();
+</script>
+</body>
+</html>
