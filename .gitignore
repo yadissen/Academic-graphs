@@ -1,0 +1,12 @@
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# Output directory (generated figures)
+output/
+
+# OS files
+.DS_Store
+Thumbs.db
