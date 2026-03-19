@@ -742,41 +742,42 @@ server <- function(input, output, session) {
     }))
   })
 
-  # Observe series name edits
-  observe({
-    series <- rv$series_data
-    lapply(seq_along(series), function(i) {
-      observeEvent(input[[paste0("series_name_", i)]], {
-        new_name <- input[[paste0("series_name_", i)]]
-        if (!is.null(new_name) && nchar(trimws(new_name)) > 0 &&
-            new_name != rv$series_data[[i]]$label) {
-          rv$series_data[[i]]$label <- new_name
-        }
-      }, ignoreInit = TRUE)
-    })
-  })
+  # ── Series property observers ───────────────────────
 
-  # Observe series colour edits
-  observe({
-    series <- rv$series_data
-    lapply(seq_along(series), function(i) {
-      observeEvent(input[[paste0("series_color_", i)]], {
-        new_col <- input[[paste0("series_color_", i)]]
-        if (!is.null(new_col) && new_col != rv$series_data[[i]]$color) {
-          rv$series_data[[i]]$color <- new_col
-        }
-      }, ignoreInit = TRUE)
-    })
-  })
+  # Track how many series observers we've wired up so far
+  rv_obs <- reactiveValues(n_series_obs = 0L)
 
-  # Observe visibility toggles
+  # Whenever the series count grows, create observers for the NEW indices only.
+  # Each observeEvent is created exactly once per index (never duplicated).
   observe({
-    series <- rv$series_data
-    lapply(seq_along(series), function(i) {
-      observeEvent(input[[paste0("toggle_vis_", i)]], {
-        rv$series_data[[i]]$visible <- !rv$series_data[[i]]$visible
-      }, ignoreInit = TRUE)
-    })
+    n <- length(rv$series_data)
+    prev <- isolate(rv_obs$n_series_obs)
+    if (n > prev) {
+      lapply((prev + 1L):n, function(i) {
+        # Name edit
+        observeEvent(input[[paste0("series_name_", i)]], {
+          new_name <- input[[paste0("series_name_", i)]]
+          if (!is.null(new_name) && nchar(trimws(new_name)) > 0 &&
+              new_name != rv$series_data[[i]]$label) {
+            rv$series_data[[i]]$label <- new_name
+          }
+        }, ignoreInit = TRUE)
+
+        # Colour edit
+        observeEvent(input[[paste0("series_color_", i)]], {
+          new_col <- input[[paste0("series_color_", i)]]
+          if (!is.null(new_col) && new_col != rv$series_data[[i]]$color) {
+            rv$series_data[[i]]$color <- new_col
+          }
+        }, ignoreInit = TRUE)
+
+        # Visibility toggle
+        observeEvent(input[[paste0("toggle_vis_", i)]], {
+          rv$series_data[[i]]$visible <- !rv$series_data[[i]]$visible
+        }, ignoreInit = TRUE)
+      })
+      rv_obs$n_series_obs <- n
+    }
   })
 
   observeEvent(input$show_all, {
@@ -1281,7 +1282,11 @@ server <- function(input, output, session) {
         y_upper <- max(plot_df$y, na.rm = TRUE)
         y_range <- diff(range(plot_df$y, na.rm = TRUE))
 
-        # Build combined label text — stack row1 over row2 for clarity
+        has_row1 <- any(nchar(top_df$row1) > 0)
+        has_row2 <- any(nchar(top_df$row2) > 0)
+        both_rows <- has_row1 && has_row2
+
+        # Build combined label: stack row1 / row2 with padding for readability
         top_df$combined <- mapply(function(r1, r2) {
           parts <- c()
           if (nchar(r1) > 0) parts <- c(parts, trimws(r1))
@@ -1289,10 +1294,11 @@ server <- function(input, output, session) {
           paste(parts, collapse = "\n")
         }, top_df$row1, top_df$row2, USE.NAMES = FALSE)
 
-        # Add header labels at the very top
+        # Header title for the top axis
         header_parts <- c()
         if (nchar(label1) > 0) header_parts <- c(header_parts, label1)
         if (nchar(label2) > 0) header_parts <- c(header_parts, label2)
+        top_title <- paste(header_parts, collapse = "  /  ")
 
         # Use sec_axis for top tick marks
         if (isTRUE(input$top_ann_ticks)) {
@@ -1302,34 +1308,52 @@ server <- function(input, output, session) {
             limits = if (!all(is.na(x_lim))) x_lim else NULL,
             expand = expansion(mult = 0.02),
             breaks = x_breaks_fn, labels = x_labels_fn,
-            sec.axis = dup_axis(
-              name = paste(header_parts, collapse = "  /  "),
+            sec.axis = sec_axis(
+              transform = ~ .,
+              name = top_title,
               breaks = top_breaks,
               labels = top_labels
             )
           )
+          # Increase lineheight when both rows are present so they don't overlap
+          lh <- if (both_rows) 1.35 else 1.0
           p <- p + theme(
-            axis.text.x.top = element_text(size = top_ann_sz * 2.5, color = top_ann_col,
-                                           angle = top_ann_angle, hjust = top_ann_hjust,
-                                           vjust = 0, lineheight = 1.1,
-                                           margin = margin(b = 2)),
-            axis.title.x.top = element_text(size = top_ann_sz * 2.8, color = top_ann_col,
-                                            face = "italic", margin = margin(b = 4)),
+            axis.text.x.top = element_text(
+              size = top_ann_sz * 2.5, color = top_ann_col,
+              angle = top_ann_angle, hjust = top_ann_hjust,
+              vjust = 0, lineheight = lh,
+              margin = margin(b = 4)
+            ),
+            axis.title.x.top = element_text(
+              size = top_ann_sz * 2.8, color = top_ann_col,
+              face = "italic", margin = margin(b = 2)
+            ),
             axis.ticks.x.top = element_line(color = "#999999", linewidth = 0.3),
-            axis.ticks.length.x.top = unit(3, "pt")
+            axis.ticks.length.x.top = unit(3, "pt"),
+            # Extra top margin so the two-row labels don't clip
+            plot.margin = margin(t = if (both_rows) 8 else 5, r = 12, b = 12, l = 12)
           )
         } else {
-          # No tick marks — just annotate text above plot area using coord_cartesian clip off
+          # No tick marks — annotate text above plot area with clip off
           for (k in seq_len(nrow(top_df))) {
             p <- p + annotate("text",
               x = top_df$x[k], y = Inf,
               label = top_df$combined[k],
               color = top_ann_col, size = top_ann_sz,
               angle = top_ann_angle, hjust = 0.5, vjust = -0.3,
-              lineheight = 0.85)
+              lineheight = if (both_rows) 1.2 else 0.85)
+          }
+          if (nchar(top_title) > 0) {
+            # Add title annotation above everything
+            x_mid <- mean(range(top_df$x, na.rm = TRUE))
+            p <- p + annotate("text",
+              x = x_mid, y = Inf,
+              label = top_title,
+              color = top_ann_col, size = top_ann_sz * 1.1,
+              fontface = "italic", hjust = 0.5, vjust = -1.8)
           }
           p <- p + coord_cartesian(clip = "off") +
-            theme(plot.margin = margin(30, 12, 12, 12))
+            theme(plot.margin = margin(t = if (both_rows) 40 else 30, r = 12, b = 12, l = 12))
         }
       }
     }
