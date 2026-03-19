@@ -344,7 +344,7 @@ ui <- page_navbar(
               sliderInput("marker_nth", "Show every Nth point",
                           min = 2, max = 100, value = 10, step = 1)
             ),
-            sliderInput("marker_size", "Marker size", min = 1, max = 8, value = 2, step = 0.2),
+            sliderInput("marker_size", "Marker size", min = 1, max = 8, value = 2.8, step = 0.2),
             hr(),
             selectInput("grid_lines", "Grid lines",
                         choices = c("None" = "none", "Major" = "major",
@@ -1092,8 +1092,10 @@ server <- function(input, output, session) {
     mk_size <- input$marker_size %||% 2.8
 
     if (mk_mode != "none") {
+      # Build a combined marker data frame with series factor for legend mapping
+      marker_dfs <- list()
       for (s in visible) {
-        sdf <- data.frame(x = s$x, y = s$y)
+        sdf <- data.frame(x = s$x, y = s$y, series = s$label)
         sdf <- sdf[order(sdf$x), ]
 
         if (mk_mode == "nth") {
@@ -1104,19 +1106,22 @@ server <- function(input, output, session) {
         } else if (mk_mode == "ends") {
           sdf <- sdf[c(1, nrow(sdf)), ]
         }
-
-        is_filled <- s$shape %in% FILLED_SHAPES  # shapes 21-25: fill + border
-        p <- p + geom_point(data = sdf, aes(x = x, y = y), inherit.aes = FALSE,
-                            shape = s$shape,
-                            color = if (is_filled) "black" else s$color,
-                            fill  = if (is_filled) s$color else NA,
-                            size = mk_size, stroke = 0.5, show.legend = FALSE)
+        marker_dfs[[length(marker_dfs) + 1]] <- sdf
       }
-    }
+      marker_df <- do.call(rbind, marker_dfs)
+      marker_df$series <- factor(marker_df$series,
+                                  levels = vapply(visible, function(s) s$label, character(1)))
 
-    # ── Legend: build proper line + marker keys ──────────
-    # Create a proper legend with both line swatches and marker points
-    p <- p + geom_point(alpha = 0, size = 0)  # invisible layer for legend mapping
+      # Use mapped aesthetics so the legend is generated automatically
+      p <- p + geom_point(data = marker_df,
+                          aes(x = x, y = y, color = series, shape = series),
+                          size = mk_size, stroke = 0.5)
+    } else {
+      # No markers — still need a mapped layer for legend
+      p <- p + geom_point(data = plot_df,
+                          aes(x = x, y = y, color = series),
+                          alpha = 0, size = 0, show.legend = TRUE)
+    }
 
     # ── Annotations ─────────────────────────────────────
     for (ann in rv$annotations) {
@@ -1168,9 +1173,6 @@ server <- function(input, output, session) {
       linewidth = lw,
       fill = vapply(visible, function(s) {
         if (s$shape %in% FILLED_SHAPES) s$color else NA_character_
-      }, character(1)),
-      color = vapply(visible, function(s) {
-        if (s$shape %in% FILLED_SHAPES) "black" else s$color
       }, character(1))
     )
 
@@ -1303,11 +1305,11 @@ server <- function(input, output, session) {
         y_upper <- max(plot_df$y, na.rm = TRUE)
         y_range <- diff(range(plot_df$y, na.rm = TRUE))
 
-        # Build combined label text (row1 above row2)
+        # Build combined label text — stack row1 over row2 for clarity
         top_df$combined <- mapply(function(r1, r2) {
           parts <- c()
-          if (nchar(r1) > 0) parts <- c(parts, r1)
-          if (nchar(r2) > 0) parts <- c(parts, r2)
+          if (nchar(r1) > 0) parts <- c(parts, trimws(r1))
+          if (nchar(r2) > 0) parts <- c(parts, trimws(r2))
           paste(parts, collapse = "\n")
         }, top_df$row1, top_df$row2, USE.NAMES = FALSE)
 
@@ -1331,12 +1333,13 @@ server <- function(input, output, session) {
             )
           )
           p <- p + theme(
-            axis.text.x.top = element_text(size = top_ann_sz * 3, color = top_ann_col,
+            axis.text.x.top = element_text(size = top_ann_sz * 2.5, color = top_ann_col,
                                            angle = top_ann_angle, hjust = top_ann_hjust,
-                                           vjust = top_ann_vjust, lineheight = 0.9),
-            axis.title.x.top = element_text(size = top_ann_sz * 3, color = top_ann_col,
-                                            face = "bold", margin = margin(b = 4)),
-            axis.ticks.x.top = element_line(color = "#cccccc", linewidth = 0.3),
+                                           vjust = 0, lineheight = 1.1,
+                                           margin = margin(b = 2)),
+            axis.title.x.top = element_text(size = top_ann_sz * 2.8, color = top_ann_col,
+                                            face = "italic", margin = margin(b = 4)),
+            axis.ticks.x.top = element_line(color = "#999999", linewidth = 0.3),
             axis.ticks.length.x.top = unit(3, "pt")
           )
         } else {
