@@ -111,6 +111,11 @@ theme_academic <- function(base_size = 14, base_family = "sans",
   # Inward ticks: negative length draws them inside the plot area
   tick_len <- if (ticks_inward) unit(-4, "pt") else unit(4, "pt")
 
+  # When ticks are inward, axis text needs extra padding from the axis line
+  # to prevent numbers from sitting right on the axis
+  text_margin_x <- if (ticks_inward) margin(t = 8) else margin(t = 4)
+  text_margin_y <- if (ticks_inward) margin(r = 8) else margin(r = 4)
+
   t <- theme_classic(base_size = base_size, base_family = base_family) %+replace%
     theme(
       text             = element_text(color = "#1a1714"),
@@ -123,6 +128,8 @@ theme_academic <- function(base_size = 14, base_family = "sans",
       axis.title.x     = element_text(margin = margin(t = 10)),
       axis.title.y     = element_text(margin = margin(r = 10), angle = 90),
       axis.text        = element_text(size = rel(0.85), color = "#333333"),
+      axis.text.x      = element_text(margin = text_margin_x),
+      axis.text.y      = element_text(margin = text_margin_y),
       axis.line        = element_line(color = "#1a1a1a", linewidth = 0.5),
       axis.ticks       = element_line(color = "#1a1a1a", linewidth = 0.35),
       axis.ticks.length = tick_len,
@@ -136,7 +143,7 @@ theme_academic <- function(base_size = 14, base_family = "sans",
       legend.text      = element_text(size = rel(0.78)),
       legend.title     = element_blank(),
       legend.margin    = margin(4, 6, 4, 6),
-      plot.margin      = margin(12, 12, 12, 12),
+      plot.margin      = margin(14, 14, 14, 14),
       strip.background = element_rect(fill = "#f0f0f0", color = "#cccccc"),
       strip.text       = element_text(size = rel(0.9), face = "bold")
     )
@@ -1140,9 +1147,12 @@ server <- function(input, output, session) {
       vapply(visible, function(s) s$label, character(1))
     )
 
-    p <- p + scale_fill_manual(values = fill_vals, guide = "none")
+    p <- p + scale_fill_manual(values = fill_vals, na.value = NA)
 
-    # Legend override: show colored line + correct marker per series
+    # Unified legend: merge color, shape, and fill into a single guide
+    # to prevent plotly from creating duplicate/broken legend entries
+    legend_ncol <- input$legend_cols %||% 1
+
     legend_overrides <- list(
       size = mk_size + 0.5,
       stroke = 0.5,
@@ -1158,12 +1168,15 @@ server <- function(input, output, session) {
       legend_overrides$size <- 0
     }
 
+    shared_guide <- guide_legend(
+      ncol = legend_ncol,
+      override.aes = legend_overrides
+    )
+
     p <- p + guides(
-      color = guide_legend(
-        ncol = input$legend_cols %||% 1,
-        override.aes = legend_overrides
-      ),
-      shape = "none"
+      color = shared_guide,
+      shape = shared_guide,
+      fill  = shared_guide
     )
 
     # ── Labels ──────────────────────────────────────────
@@ -1286,19 +1299,19 @@ server <- function(input, output, session) {
         has_row2 <- any(nchar(top_df$row2) > 0)
         both_rows <- has_row1 && has_row2
 
-        # Build combined label: stack row1 / row2 with padding for readability
+        # Build combined label: stack row1 / row2 with clear separation
         top_df$combined <- mapply(function(r1, r2) {
           parts <- c()
           if (nchar(r1) > 0) parts <- c(parts, trimws(r1))
           if (nchar(r2) > 0) parts <- c(parts, trimws(r2))
-          paste(parts, collapse = "\n")
+          paste(parts, collapse = " \n ")
         }, top_df$row1, top_df$row2, USE.NAMES = FALSE)
 
-        # Header title for the top axis
+        # Header title for the top axis — use bullet separator for clarity
         header_parts <- c()
         if (nchar(label1) > 0) header_parts <- c(header_parts, label1)
         if (nchar(label2) > 0) header_parts <- c(header_parts, label2)
-        top_title <- paste(header_parts, collapse = "  /  ")
+        top_title <- paste(header_parts, collapse = "  \u2022  ")
 
         # Use sec_axis for top tick marks
         if (isTRUE(input$top_ann_ticks)) {
@@ -1316,22 +1329,22 @@ server <- function(input, output, session) {
             )
           )
           # Increase lineheight when both rows are present so they don't overlap
-          lh <- if (both_rows) 1.35 else 1.0
+          lh <- if (both_rows) 1.8 else 1.0
           p <- p + theme(
             axis.text.x.top = element_text(
               size = top_ann_sz * 2.5, color = top_ann_col,
               angle = top_ann_angle, hjust = top_ann_hjust,
               vjust = 0, lineheight = lh,
-              margin = margin(b = 4)
+              margin = margin(b = 6, t = 4)
             ),
             axis.title.x.top = element_text(
               size = top_ann_sz * 2.8, color = top_ann_col,
-              face = "italic", margin = margin(b = 2)
+              face = "italic", margin = margin(b = 6, t = 4)
             ),
             axis.ticks.x.top = element_line(color = "#999999", linewidth = 0.3),
-            axis.ticks.length.x.top = unit(3, "pt"),
+            axis.ticks.length.x.top = unit(4, "pt"),
             # Extra top margin so the two-row labels don't clip
-            plot.margin = margin(t = if (both_rows) 8 else 5, r = 12, b = 12, l = 12)
+            plot.margin = margin(t = if (both_rows) 14 else 8, r = 14, b = 14, l = 14)
           )
         } else {
           # No tick marks — annotate text above plot area with clip off
@@ -1353,7 +1366,7 @@ server <- function(input, output, session) {
               fontface = "italic", hjust = 0.5, vjust = -1.8)
           }
           p <- p + coord_cartesian(clip = "off") +
-            theme(plot.margin = margin(t = if (both_rows) 40 else 30, r = 12, b = 12, l = 12))
+            theme(plot.margin = margin(t = if (both_rows) 45 else 32, r = 14, b = 14, l = 14))
         }
       }
     }
