@@ -48,9 +48,9 @@ PALETTES <- list(
 
 # ── Marker shapes (academic standard) ────────────────────────────────────────
 MARKER_SHAPES <- c(
-  "Circle" = 16, "Square" = 15, "Triangle" = 17, "Diamond" = 18,
-  "Inv Triangle" = 25, "Cross" = 4, "Circle Open" = 1, "Square Open" = 0,
-  "Triangle Open" = 2, "Diamond Open" = 5, "Plus" = 3, "Asterisk" = 8
+  "Circle" = 16L, "Square" = 15L, "Triangle" = 17L, "Diamond" = 18L,
+  "Inv Triangle" = 25L, "Cross" = 4L, "Circle Open" = 1L, "Square Open" = 0L,
+  "Triangle Open" = 2L, "Diamond Open" = 5L, "Plus" = 3L, "Asterisk" = 8L
 )
 
 # ── Line type options ─────────────────────────────────────────────────────────
@@ -395,6 +395,30 @@ ui <- page_navbar(
                         selected = "Bottom Right"),
             numericInput("legend_size", "Text size", value = 10, min = 6, max = 20, step = 1),
             numericInput("legend_cols", "Columns", value = 1, min = 1, max = 5, step = 1)
+          ),
+
+          # ── TOP AXIS ANNOTATIONS ─────────────────────────────
+          accordion_panel("Top Axis Annotations", icon = icon("arrow-up-short-wide"),
+            helpText("Show associated values above the plot at each X position (e.g. mass, watercut per year).",
+                     style = "font-size:0.65rem;color:#999;font-style:italic;margin-bottom:8px;"),
+            checkboxInput("top_ann_enable", "Enable top-axis annotations", value = FALSE),
+            conditionalPanel("input.top_ann_enable",
+              uiOutput("top_ann_col_selectors"),
+              numericInput("top_ann_size", "Font size", value = 3, min = 1.5, max = 8, step = 0.25),
+              numericInput("top_ann_angle", "Text angle", value = 0, min = 0, max = 90, step = 15),
+              colourInput("top_ann_color", "Text colour", value = "#555555", showColour = "both"),
+              checkboxInput("top_ann_ticks", "Show tick marks on top axis", value = TRUE),
+              hr(),
+              tags$p("Manual entries (if no column selected):",
+                     style = "font-size:0.65rem;color:#999;margin-bottom:6px;"),
+              fluidRow(
+                column(4, numericInput("top_ann_x", "X", value = NA, step = 0.1)),
+                column(4, textInput("top_ann_row1", "Row 1", value = "")),
+                column(4, textInput("top_ann_row2", "Row 2", value = ""))
+              ),
+              actionButton("add_top_ann", "Add", class = "btn-ghost w-100", icon = icon("plus")),
+              uiOutput("top_ann_manual_list")
+            )
           )
         ) # end accordion
       ), # end sidebar
@@ -516,8 +540,9 @@ server <- function(input, output, session) {
     series_data    = list(),
     ref_lines      = list(),
     annotations    = list(),
+    top_anns       = list(),   # manual top-axis annotations
     is_flow_regime = FALSE,
-    plot_counter   = 0       # force refresh
+    plot_counter   = 0         # force refresh
   )
 
   # ── Journal preset ─────────────────────────────────────────────────────────
@@ -640,7 +665,7 @@ server <- function(input, output, session) {
       series_list[[length(series_list) + 1]] <- list(
         label     = label,
         color     = pal[((i - 1) %% length(pal)) + 1],
-        shape     = shape_cycle[((i - 1) %% length(shape_cycle)) + 1],
+        shape     = as.integer(shape_cycle[((i - 1) %% length(shape_cycle)) + 1]),
         linetype  = "solid",
         x         = x_vals,
         y         = y_vals,
@@ -797,6 +822,55 @@ server <- function(input, output, session) {
     updateNumericInput(session, "ymax", value = NA)
   })
 
+  # ══════════════════════════════════════════════════════
+  #  TOP AXIS ANNOTATIONS
+  # ══════════════════════════════════════════════════════
+  output$top_ann_col_selectors <- renderUI({
+    df <- current_sheet()
+    req(df)
+    cols <- c("(none)" = "", colnames(df))
+    tagList(
+      selectInput("top_ann_col1", "Row 1 column (e.g. Mass)", choices = cols),
+      textInput("top_ann_label1", "Row 1 label", value = "Mass"),
+      selectInput("top_ann_col2", "Row 2 column (e.g. Watercut)", choices = cols),
+      textInput("top_ann_label2", "Row 2 label", value = "Watercut")
+    )
+  })
+
+  observeEvent(input$add_top_ann, {
+    req(input$top_ann_x)
+    rv$top_anns <- c(rv$top_anns, list(list(
+      x = input$top_ann_x,
+      row1 = input$top_ann_row1 %||% "",
+      row2 = input$top_ann_row2 %||% ""
+    )))
+    updateNumericInput(session, "top_ann_x", value = NA)
+    updateTextInput(session, "top_ann_row1", value = "")
+    updateTextInput(session, "top_ann_row2", value = "")
+  })
+
+  output$top_ann_manual_list <- renderUI({
+    anns <- rv$top_anns
+    if (length(anns) == 0) return(NULL)
+    tagList(lapply(seq_along(anns), function(i) {
+      a <- anns[[i]]
+      div(class = "ref-item",
+        span(paste0("x=", a$x, ": ", a$row1, " / ", a$row2),
+             style = "flex:1;color:#666;font-size:0.68rem;"),
+        actionButton(paste0("rm_topann_", i), icon("xmark"),
+                     class = "btn btn-sm btn-ghost", style = "padding:2px 6px;")
+      )
+    }))
+  })
+
+  observe({
+    lapply(seq_along(rv$top_anns), function(i) {
+      observeEvent(input[[paste0("rm_topann_", i)]], {
+        rv$top_anns <- rv$top_anns[-i]
+      }, ignoreInit = TRUE, once = TRUE)
+    })
+  })
+
   # ── Refresh plot ────────────────────────────────────────────────────────────
   observeEvent(input$refresh_plot, { rv$plot_counter <- rv$plot_counter + 1 })
 
@@ -836,8 +910,10 @@ server <- function(input, output, session) {
     # Maps
     color_map <- setNames(vapply(visible, function(s) s$color, character(1)),
                           vapply(visible, function(s) s$label, character(1)))
-    shape_map <- setNames(vapply(visible, function(s) s$shape, integer(1)),
-                          vapply(visible, function(s) s$label, character(1)))
+    shape_map <- setNames(
+      vapply(visible, function(s) as.integer(s$shape), integer(1)),
+      vapply(visible, function(s) s$label, character(1))
+    )
 
     # ── Base plot ───────────────────────────────────────
     font_size <- input$axis_text_size %||% 12
@@ -1028,15 +1104,126 @@ server <- function(input, output, session) {
     y_lim <- c(if (!is.na(input$ymin)) input$ymin else NA,
                if (!is.na(input$ymax)) input$ymax else NA)
 
-    if (!all(is.na(x_lim)))
-      p <- p + scale_x_continuous(limits = x_lim, expand = expansion(mult = 0.02))
-    else
-      p <- p + scale_x_continuous(expand = expansion(mult = 0.02))
+    # Only add x scale here if top-axis annotations won't override it later
+    top_ann_active <- isTRUE(input$top_ann_enable) && isTRUE(input$top_ann_ticks)
+    if (!top_ann_active) {
+      if (!all(is.na(x_lim)))
+        p <- p + scale_x_continuous(limits = x_lim, expand = expansion(mult = 0.02))
+      else
+        p <- p + scale_x_continuous(expand = expansion(mult = 0.02))
+    }
 
     if (!all(is.na(y_lim)))
       p <- p + scale_y_continuous(limits = y_lim, expand = expansion(mult = 0.02))
     else
       p <- p + scale_y_continuous(expand = expansion(mult = 0.02))
+
+    # ── Top-axis annotations ─────────────────────────────
+    if (isTRUE(input$top_ann_enable)) {
+      top_ann_sz    <- input$top_ann_size %||% 3
+      top_ann_angle <- input$top_ann_angle %||% 0
+      top_ann_col   <- input$top_ann_color %||% "#555555"
+      top_ann_hjust <- if (top_ann_angle > 0) 0.5 else 0.5
+      top_ann_vjust <- 1
+
+      # Build top annotation data from columns or manual entries
+      top_df <- NULL
+
+      col1 <- input$top_ann_col1 %||% ""
+      col2 <- input$top_ann_col2 %||% ""
+      label1 <- input$top_ann_label1 %||% ""
+      label2 <- input$top_ann_label2 %||% ""
+
+      df <- tryCatch(current_sheet(), error = function(e) NULL)
+
+      if (!is.null(df) && (nchar(col1) > 0 || nchar(col2) > 0)) {
+        x_col <- input$col_x
+        if (!is.null(x_col) && x_col %in% colnames(df)) {
+          x_vals <- suppressWarnings(as.numeric(df[[x_col]]))
+
+          rows1 <- if (nchar(col1) > 0 && col1 %in% colnames(df)) as.character(df[[col1]]) else rep("", length(x_vals))
+          rows2 <- if (nchar(col2) > 0 && col2 %in% colnames(df)) as.character(df[[col2]]) else rep("", length(x_vals))
+
+          valid <- !is.na(x_vals)
+          if (any(valid)) {
+            top_df <- data.frame(
+              x = x_vals[valid],
+              row1 = rows1[valid],
+              row2 = rows2[valid],
+              stringsAsFactors = FALSE
+            )
+            # Deduplicate by x (take first occurrence)
+            top_df <- top_df[!duplicated(top_df$x), ]
+          }
+        }
+      }
+
+      # Add manual entries
+      manual_anns <- rv$top_anns
+      if (length(manual_anns) > 0) {
+        manual_df <- data.frame(
+          x = vapply(manual_anns, function(a) a$x, numeric(1)),
+          row1 = vapply(manual_anns, function(a) a$row1, character(1)),
+          row2 = vapply(manual_anns, function(a) a$row2, character(1)),
+          stringsAsFactors = FALSE
+        )
+        top_df <- if (is.null(top_df)) manual_df else rbind(top_df, manual_df)
+      }
+
+      if (!is.null(top_df) && nrow(top_df) > 0) {
+        y_upper <- max(plot_df$y, na.rm = TRUE)
+        y_range <- diff(range(plot_df$y, na.rm = TRUE))
+
+        # Build combined label text (row1 above row2)
+        top_df$combined <- mapply(function(r1, r2) {
+          parts <- c()
+          if (nchar(r1) > 0) parts <- c(parts, r1)
+          if (nchar(r2) > 0) parts <- c(parts, r2)
+          paste(parts, collapse = "\n")
+        }, top_df$row1, top_df$row2, USE.NAMES = FALSE)
+
+        # Add header labels at the very top
+        header_parts <- c()
+        if (nchar(label1) > 0) header_parts <- c(header_parts, label1)
+        if (nchar(label2) > 0) header_parts <- c(header_parts, label2)
+
+        # Use sec_axis for top tick marks
+        if (isTRUE(input$top_ann_ticks)) {
+          top_breaks <- top_df$x
+          top_labels <- top_df$combined
+          p <- p + scale_x_continuous(
+            limits = if (!all(is.na(x_lim))) x_lim else NULL,
+            expand = expansion(mult = 0.02),
+            sec.axis = dup_axis(
+              name = paste(header_parts, collapse = "  /  "),
+              breaks = top_breaks,
+              labels = top_labels
+            )
+          )
+          p <- p + theme(
+            axis.text.x.top = element_text(size = top_ann_sz * 3, color = top_ann_col,
+                                           angle = top_ann_angle, hjust = top_ann_hjust,
+                                           vjust = top_ann_vjust, lineheight = 0.9),
+            axis.title.x.top = element_text(size = top_ann_sz * 3, color = top_ann_col,
+                                            face = "bold", margin = margin(b = 4)),
+            axis.ticks.x.top = element_line(color = "#cccccc", linewidth = 0.3),
+            axis.ticks.length.x.top = unit(3, "pt")
+          )
+        } else {
+          # No tick marks — just annotate text above plot area using coord_cartesian clip off
+          for (k in seq_len(nrow(top_df))) {
+            p <- p + annotate("text",
+              x = top_df$x[k], y = Inf,
+              label = top_df$combined[k],
+              color = top_ann_col, size = top_ann_sz,
+              angle = top_ann_angle, hjust = 0.5, vjust = -0.3,
+              lineheight = 0.85)
+          }
+          p <- p + coord_cartesian(clip = "off") +
+            theme(plot.margin = margin(30, 12, 12, 12))
+        }
+      }
+    }
 
     # ── Legend position ─────────────────────────────────
     lp <- input$legend_pos %||% "Bottom Right"
