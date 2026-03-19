@@ -1088,8 +1088,9 @@ server <- function(input, output, session) {
                                   levels = vapply(visible, function(s) s$label, character(1)))
 
       # Use mapped aesthetics so the legend is generated automatically
+      # Map fill = series so shapes 21-25 get filled interiors
       p <- p + geom_point(data = marker_df,
-                          aes(x = x, y = y, color = series, shape = series),
+                          aes(x = x, y = y, color = series, shape = series, fill = series),
                           size = mk_size, stroke = 0.5)
     } else {
       # No markers — still need a mapped layer for legend
