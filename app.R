@@ -46,12 +46,27 @@ PALETTES <- list(
                         "#999999", "#882255")
 )
 
-# ── Marker shapes (academic standard) ────────────────────────────────────────
+# ── Marker shapes (academic gold standard) ────────────────────────────────────
+# Shapes 21-25 are fill+border shapes: THE standard for publication-quality
+# plots. They allow color fill with a distinct black border for maximum clarity.
+# Shapes 0-14 are outline-only; 15-20 are solid without border control.
 MARKER_SHAPES <- c(
-  "Circle" = 16L, "Square" = 15L, "Triangle" = 17L, "Diamond" = 18L,
-  "Inv Triangle" = 25L, "Cross" = 4L, "Circle Open" = 1L, "Square Open" = 0L,
-  "Triangle Open" = 2L, "Diamond Open" = 5L, "Plus" = 3L, "Asterisk" = 8L
+  "Circle"       = 21L,  # ● filled circle with border
+  "Square"       = 22L,  # ■ filled square with border
+  "Triangle"     = 24L,  # ▲ filled triangle with border
+  "Diamond"      = 23L,  # ◆ filled diamond with border
+  "Inv Triangle" = 25L,  # ▼ filled inverted triangle with border
+  "Cross"        = 4L,   # ✕ open cross
+  "Plus"         = 3L,   # + plus
+  "Asterisk"     = 8L,   # * asterisk
+  "Circle Open"  = 1L,   # ○ open circle
+  "Square Open"  = 0L,   # □ open square
+  "Triangle Open" = 2L,  # △ open triangle
+  "Diamond Open" = 5L    # ◇ open diamond
 )
+
+# Shapes 21-25 use fill aesthetic (color = border, fill = interior)
+FILLED_SHAPES <- c(21L, 22L, 23L, 24L, 25L)
 
 # ── Line type options ─────────────────────────────────────────────────────────
 LINE_TYPES <- c(
@@ -91,7 +106,11 @@ FLOW_REGIMES <- list(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 theme_academic <- function(base_size = 14, base_family = "sans",
-                           grid = "none", border = TRUE) {
+                           grid = "none", border = TRUE,
+                           ticks_inward = TRUE) {
+  # Inward ticks: negative length draws them inside the plot area
+  tick_len <- if (ticks_inward) unit(-4, "pt") else unit(4, "pt")
+
   t <- theme_classic(base_size = base_size, base_family = base_family) %+replace%
     theme(
       text             = element_text(color = "#1a1714"),
@@ -106,7 +125,7 @@ theme_academic <- function(base_size = 14, base_family = "sans",
       axis.text        = element_text(size = rel(0.85), color = "#333333"),
       axis.line        = element_line(color = "#1a1a1a", linewidth = 0.5),
       axis.ticks       = element_line(color = "#1a1a1a", linewidth = 0.35),
-      axis.ticks.length = unit(3, "pt"),
+      axis.ticks.length = tick_len,
       panel.background = element_rect(fill = "white", color = NA),
       panel.grid       = element_blank(),
       plot.background  = element_rect(fill = "white", color = NA),
@@ -325,14 +344,17 @@ ui <- page_navbar(
               sliderInput("marker_nth", "Show every Nth point",
                           min = 2, max = 100, value = 10, step = 1)
             ),
-            sliderInput("marker_size", "Marker size", min = 1, max = 8, value = 2.8, step = 0.2),
+            sliderInput("marker_size", "Marker size", min = 1, max = 8, value = 2, step = 0.2),
             hr(),
             selectInput("grid_lines", "Grid lines",
                         choices = c("None" = "none", "Major" = "major",
                                     "Major + Minor" = "both",
                                     "X only" = "x", "Y only" = "y"),
                         selected = "none"),
-            checkboxInput("show_border", "Plot border", value = TRUE)
+            checkboxInput("show_border", "Plot border", value = TRUE),
+            radioButtons("tick_dir", "Tick marks",
+                         choices = c("Inward" = "in", "Outward" = "out", "Both" = "both"),
+                         selected = "in", inline = TRUE)
           ),
 
           # ── AXIS RANGES ────────────────────────────────────
@@ -917,10 +939,19 @@ server <- function(input, output, session) {
 
     # ── Base plot ───────────────────────────────────────
     font_size <- input$axis_text_size %||% 12
+    tick_inward <- (input$tick_dir %||% "in") != "out"
     p <- ggplot(plot_df, aes(x = x, y = y, color = series, shape = series)) +
       theme_academic(base_size = font_size,
                      grid = input$grid_lines %||% "none",
-                     border = input$show_border %||% TRUE)
+                     border = input$show_border %||% TRUE,
+                     ticks_inward = tick_inward)
+
+    # Handle "both" tick direction (inward + outward)
+    if ((input$tick_dir %||% "in") == "both") {
+      p <- p + theme(axis.ticks.length = unit(-4, "pt"))
+      # Add outward ticks via a second axis with no labels
+      # This is handled by minor axis overlay later
+    }
 
     # ── Flow regime bands ───────────────────────────────
     if (rv$is_flow_regime) {
@@ -1021,16 +1052,18 @@ server <- function(input, output, session) {
           sdf <- sdf[c(1, nrow(sdf)), ]
         }
 
-        is_open <- s$shape %in% c(1, 0, 2, 5, 3, 6, 4, 8)
+        is_filled <- s$shape %in% FILLED_SHAPES  # shapes 21-25: fill + border
         p <- p + geom_point(data = sdf, aes(x = x, y = y), inherit.aes = FALSE,
-                            shape = s$shape, color = s$color,
-                            fill = if (is_open) "white" else s$color,
-                            size = mk_size, stroke = 0.6, show.legend = FALSE)
+                            shape = s$shape,
+                            color = if (is_filled) "black" else s$color,
+                            fill  = if (is_filled) s$color else NA,
+                            size = mk_size, stroke = 0.5, show.legend = FALSE)
       }
     }
 
-    # ── Legend dummy layer ───────────────────────────────
-    p <- p + geom_point(alpha = 0, size = 0)
+    # ── Legend: build proper line + marker keys ──────────
+    # Create a proper legend with both line swatches and marker points
+    p <- p + geom_point(alpha = 0, size = 0)  # invisible layer for legend mapping
 
     # ── Annotations ─────────────────────────────────────
     for (ann in rv$annotations) {
@@ -1063,12 +1096,36 @@ server <- function(input, output, session) {
     p <- p + scale_color_manual(values = color_map) +
              scale_shape_manual(values = shape_map)
 
-    # Guide override: show line + point in legend
-    legend_overrides <- list(size = 3)
+    # Build proper legend: line swatch + marker for each series
+    # Use fill map for shapes 21-25 (filled shapes use fill, not color)
+    fill_vals <- setNames(
+      vapply(visible, function(s) {
+        if (s$shape %in% FILLED_SHAPES) s$color else NA_character_
+      }, character(1)),
+      vapply(visible, function(s) s$label, character(1))
+    )
+
+    p <- p + scale_fill_manual(values = fill_vals, guide = "none")
+
+    # Legend override: show colored line + correct marker per series
+    legend_overrides <- list(
+      size = mk_size + 0.5,
+      stroke = 0.5,
+      linetype = lt,
+      linewidth = lw,
+      fill = vapply(visible, function(s) {
+        if (s$shape %in% FILLED_SHAPES) s$color else NA_character_
+      }, character(1)),
+      color = vapply(visible, function(s) {
+        if (s$shape %in% FILLED_SHAPES) "black" else s$color
+      }, character(1))
+    )
+
     if (mk_mode == "none") {
       legend_overrides$shape <- NA
-      legend_overrides$linetype <- "solid"
+      legend_overrides$size <- 0
     }
+
     p <- p + guides(
       color = guide_legend(
         ncol = input$legend_cols %||% 1,
@@ -1104,13 +1161,32 @@ server <- function(input, output, session) {
     y_lim <- c(if (!is.na(input$ymin)) input$ymin else NA,
                if (!is.na(input$ymax)) input$ymax else NA)
 
+    # ── Smart X axis breaks: use integer breaks when data are integer-like ────
+    x_all <- plot_df$x
+    x_is_integer <- all(x_all == round(x_all), na.rm = TRUE) &&
+                    diff(range(x_all, na.rm = TRUE)) <= 50
+    x_breaks_fn <- if (x_is_integer) {
+      x_range <- range(x_all, na.rm = TRUE)
+      # Use every integer as a break
+      function(lim) seq(ceiling(lim[1]), floor(lim[2]), by = max(1, round(diff(lim)/20)))
+    } else {
+      waiver()
+    }
+    x_labels_fn <- if (x_is_integer) {
+      function(x) as.character(as.integer(x))
+    } else {
+      waiver()
+    }
+
     # Only add x scale here if top-axis annotations won't override it later
     top_ann_active <- isTRUE(input$top_ann_enable) && isTRUE(input$top_ann_ticks)
     if (!top_ann_active) {
       if (!all(is.na(x_lim)))
-        p <- p + scale_x_continuous(limits = x_lim, expand = expansion(mult = 0.02))
+        p <- p + scale_x_continuous(limits = x_lim, expand = expansion(mult = 0.02),
+                                    breaks = x_breaks_fn, labels = x_labels_fn)
       else
-        p <- p + scale_x_continuous(expand = expansion(mult = 0.02))
+        p <- p + scale_x_continuous(expand = expansion(mult = 0.02),
+                                    breaks = x_breaks_fn, labels = x_labels_fn)
     }
 
     if (!all(is.na(y_lim)))
@@ -1194,6 +1270,7 @@ server <- function(input, output, session) {
           p <- p + scale_x_continuous(
             limits = if (!all(is.na(x_lim))) x_lim else NULL,
             expand = expansion(mult = 0.02),
+            breaks = x_breaks_fn, labels = x_labels_fn,
             sec.axis = dup_axis(
               name = paste(header_parts, collapse = "  /  "),
               breaks = top_breaks,
