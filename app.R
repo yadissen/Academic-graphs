@@ -1144,12 +1144,13 @@ server <- function(input, output, session) {
 
     p <- p + scale_fill_manual(values = fill_vals, guide = "none")
 
-    # Legend override: show colored line + correct marker per series
+    # Legend override: show colored line + correct per-series marker shape
     legend_overrides <- list(
       size = mk_size + 0.5,
       stroke = 0.5,
       linetype = lt,
       linewidth = lw,
+      shape = vapply(visible, function(s) as.integer(s$shape), integer(1)),
       fill = vapply(visible, function(s) {
         if (s$shape %in% FILLED_SHAPES) s$color else NA_character_
       }, character(1))
