@@ -484,38 +484,13 @@ ui <- page_navbar(
             class = "plot-container p-1",
             div(
               style = "position:relative;",
-              plotlyOutput("interactive_plot", height = "560px"),
+              plotlyOutput("interactive_plot", height = "620px"),
               div(style = "position:absolute;top:8px;right:12px;z-index:10;",
                 actionButton("refresh_plot", "", icon = icon("sync"),
                              class = "btn btn-sm btn-ghost",
                              title = "Refresh plot")
               )
             )
-          )
-        ),
-
-        # Stats bar
-        layout_column_wrap(
-          width = 1/5,
-          div(class = "stat-card",
-            div(class = "stat-value", textOutput("stat_series", inline = TRUE)),
-            div(class = "stat-label", "Series")
-          ),
-          div(class = "stat-card",
-            div(class = "stat-value", textOutput("stat_points", inline = TRUE)),
-            div(class = "stat-label", "Data points")
-          ),
-          div(class = "stat-card",
-            div(class = "stat-value", textOutput("stat_refs", inline = TRUE)),
-            div(class = "stat-label", "Ref lines")
-          ),
-          div(class = "stat-card",
-            div(class = "stat-value", textOutput("stat_anns", inline = TRUE)),
-            div(class = "stat-label", "Annotations")
-          ),
-          div(class = "stat-card",
-            div(class = "stat-value", textOutput("stat_format", inline = TRUE)),
-            div(class = "stat-label", "Export size")
           )
         )
       )
@@ -1399,22 +1374,6 @@ server <- function(input, output, session) {
   output$static_plot <- renderPlot({
     build_plot()
   }, res = 96, execOnResize = TRUE)
-
-  # ══════════════════════════════════════════════════════
-  #  STATS BAR
-  # ══════════════════════════════════════════════════════
-  output$stat_series <- renderText({
-    sum(vapply(rv$series_data, function(s) s$visible, logical(1)))
-  })
-  output$stat_points <- renderText({
-    vis <- Filter(function(s) s$visible, rv$series_data)
-    format(sum(vapply(vis, function(s) length(s$x), integer(1))), big.mark = ",")
-  })
-  output$stat_refs <- renderText(length(rv$ref_lines))
-  output$stat_anns <- renderText(length(rv$annotations))
-  output$stat_format <- renderText({
-    paste0(input$export_width, "\u00d7", input$export_height, "\"")
-  })
 
   # ══════════════════════════════════════════════════════
   #  DATA TABLE
