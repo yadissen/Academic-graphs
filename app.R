@@ -726,7 +726,7 @@ server <- function(input, output, session) {
   })
 
   # ══════════════════════════════════════════════════════
-  #  SERIES PANEL
+  #  SERIES PANEL — editable names, colours, visibility
   # ══════════════════════════════════════════════════════
   output$series_panel <- renderUI({
     series <- rv$series_data
@@ -736,19 +736,72 @@ server <- function(input, output, session) {
     tagList(lapply(seq_along(series), function(i) {
       s <- series[[i]]
       div(
-        class = paste("series-chip", if (!s$visible) "hidden"),
-        onclick = paste0("Shiny.setInputValue('toggle_series', ", i,
-                         ", {priority: 'event'})"),
-        span(class = "series-swatch", style = paste0("background:", s$color)),
-        span(s$label, style = "font-size:0.72rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+        style = paste0(
+          "display:flex;align-items:center;gap:5px;padding:5px 8px;margin-bottom:4px;",
+          "background:#f7f4ef;border:1px solid #d4cec4;border-radius:3px;",
+          if (!s$visible) "opacity:0.35;" else ""
+        ),
+        # Colour picker (small swatch)
+        colourInput(paste0("series_color_", i), NULL, value = s$color,
+                    showColour = "background", palette = "limited",
+                    returnName = FALSE),
+        tags$style(HTML(paste0(
+          "#series_color_", i, " { width:24px !important; height:24px !important; ",
+          "padding:0 !important; border:1px solid #ccc !important; border-radius:2px !important; ",
+          "min-height:unset !important; } ",
+          "#series_color_", i, " + .input-group-addon { display:none !important; }"
+        ))),
+        # Editable series name
+        textInput(paste0("series_name_", i), NULL, value = s$label),
+        tags$style(HTML(paste0(
+          "#series_name_", i, " { font-size:0.72rem !important; padding:3px 6px !important; ",
+          "height:auto !important; margin:0 !important; flex:1; min-width:0; }"
+        ))),
+        # Toggle visibility button
+        actionButton(paste0("toggle_vis_", i),
+                     if (s$visible) icon("eye") else icon("eye-slash"),
+                     class = "btn btn-sm btn-ghost",
+                     style = "padding:2px 6px;min-width:28px;",
+                     title = if (s$visible) "Hide series" else "Show series")
       )
     }))
   })
 
-  observeEvent(input$toggle_series, {
-    i <- input$toggle_series
-    if (i >= 1 && i <= length(rv$series_data))
-      rv$series_data[[i]]$visible <- !rv$series_data[[i]]$visible
+  # Observe series name edits
+  observe({
+    series <- rv$series_data
+    lapply(seq_along(series), function(i) {
+      observeEvent(input[[paste0("series_name_", i)]], {
+        new_name <- input[[paste0("series_name_", i)]]
+        if (!is.null(new_name) && nchar(trimws(new_name)) > 0 &&
+            new_name != rv$series_data[[i]]$label) {
+          rv$series_data[[i]]$label <- new_name
+        }
+      }, ignoreInit = TRUE)
+    })
+  })
+
+  # Observe series colour edits
+  observe({
+    series <- rv$series_data
+    lapply(seq_along(series), function(i) {
+      observeEvent(input[[paste0("series_color_", i)]], {
+        new_col <- input[[paste0("series_color_", i)]]
+        if (!is.null(new_col) && new_col != rv$series_data[[i]]$color) {
+          rv$series_data[[i]]$color <- new_col
+        }
+      }, ignoreInit = TRUE)
+    })
+  })
+
+  # Observe visibility toggles
+  observe({
+    series <- rv$series_data
+    lapply(seq_along(series), function(i) {
+      observeEvent(input[[paste0("toggle_vis_", i)]], {
+        rv$series_data[[i]]$visible <- !rv$series_data[[i]]$visible
+      }, ignoreInit = TRUE)
+    })
   })
 
   observeEvent(input$show_all, {
